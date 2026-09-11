@@ -24,6 +24,7 @@ FORBIDDEN_ROOTS = {
     "reference",
     "replays",
     "saves",
+    "screenshots",
     "traces",
     "workspaces",
 }

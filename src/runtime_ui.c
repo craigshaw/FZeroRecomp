@@ -42,6 +42,7 @@
 #define FZERO_KEY_P1_SOURCE     "input.player1_source"
 #define FZERO_KEY_P1_DEADZONE   "input.player1_deadzone"
 #define FZERO_KEY_SKIP_LAUNCHER "system.skip_launcher"
+#define FZERO_KEY_SCREENSHOT "system.screenshot"
 
 struct FZeroRuntimeUi {
     FZeroSettings *settings;
@@ -52,6 +53,7 @@ struct FZeroRuntimeUi {
     RecompRuntimeUi *ui;
     FZeroFpsHotkey fps_hotkey;
     int enhanced_available;
+    int screenshot_requested;
     /* Physical gamepad state (menu closed) so Select+Start - not Start alone
      * - can be the open chord without stealing Start from the game. */
     int pad_start_down;
@@ -120,6 +122,9 @@ static const RecompRuntimeUiItem kItems[] = {
      RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, NULL, 0, NULL},
     {RECOMP_RUNTIME_UI_KEY_RESUME, "System", "Resume",
      "Close the menu and keep playing.", RECOMP_RUNTIME_UI_ACTION,
+     0, 0, 0, NULL, 0, NULL},
+    {FZERO_KEY_SCREENSHOT, "System", "Take Screenshot (F12)",
+     "Save the game image to the screenshots folder.", RECOMP_RUNTIME_UI_ACTION,
      0, 0, 0, NULL, 0, NULL},
 };
 
@@ -204,6 +209,10 @@ static int SetValue(void *context, const RecompRuntimeUiItem *item,
 
 static int RunAction(void *context, const RecompRuntimeUiItem *item) {
   FZeroRuntimeUi *rt = (FZeroRuntimeUi *)context;
+  if (!strcmp(item->key, FZERO_KEY_SCREENSHOT)) {
+    rt->screenshot_requested = 1;
+    return 1;
+  }
   if (!strcmp(item->key, RECOMP_RUNTIME_UI_KEY_RESUME)) {
     recomp_runtime_ui_close(rt->ui);
     return 1;
@@ -305,6 +314,16 @@ int FZeroRuntimeUiHandleEvent(FZeroRuntimeUi *rt,
   RecompRuntimeUiInput in = (RecompRuntimeUiInput)-1;
   int pressed = 0;
   int repeat = 0;
+
+  /* F12 captures the game even while paused in settings. Key-up and repeats
+   * are consumed without taking additional screenshots. */
+  if ((event->type == SDL_EVENT_KEY_DOWN || event->type == SDL_EVENT_KEY_UP) &&
+      event->key.scancode == SDL_SCANCODE_F12) {
+    if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat &&
+        !(event->key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_SHIFT | SDL_KMOD_GUI)))
+      rt->screenshot_requested = 1;
+    return 1;
+  }
 
   /* Menu controls retain priority while open; F1 always owns the menu.
    * Ignore lock bits, and accept either side of each required modifier. */
@@ -424,6 +443,13 @@ void FZeroRuntimeUiReapplyLogicalPresentation(
 
 RecompRuntimeUi *FZeroRuntimeUiCore(const FZeroRuntimeUi *rt) {
   return rt ? rt->ui : NULL;
+}
+
+int FZeroRuntimeUiTakeScreenshotRequest(FZeroRuntimeUi *rt) {
+  if (!rt) return 0;
+  int requested = rt->screenshot_requested;
+  rt->screenshot_requested = 0;
+  return requested;
 }
 
 void FZeroRuntimeUiResetPad(FZeroRuntimeUi *rt) {

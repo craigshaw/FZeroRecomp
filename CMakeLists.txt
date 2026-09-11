@@ -30,6 +30,7 @@ add_executable(fzero_recomp
     src/fzero_spc_player.c
     src/main.c
     src/presentation.c
+    src/screenshot.c
     src/fzero_layers.c
     src/fzero_vehicles.c
     src/fzero_ground.c
@@ -41,7 +42,8 @@ add_executable(fzero_recomp
 # The runner's debug hooks (debug_on_* / RDB_BLOCK_HOOK) are only compiled
 # when SNESRECOMP_REVERSE_DEBUG is on; SMW's build forces it off for a
 # normal release, as does this one.
-target_compile_definitions(fzero_recomp PRIVATE SNESRECOMP_REVERSE_DEBUG=0)
+target_compile_definitions(fzero_recomp PRIVATE SNESRECOMP_REVERSE_DEBUG=0
+    RECOMP_UI_HOST_STB_WRITE=1)
 target_include_directories(fzero_recomp PRIVATE
     ${SNESRECOMP_RUNNER_INCLUDE_DIRS}
     ${SNESRECOMP_RUNNER_ROOT}/src/desktop
@@ -77,6 +79,7 @@ if(BUILD_TESTING)
         tests/test_host_ui.c
         src/config.c src/runtime_ui.c src/runtime_ui_imgui.cpp
         src/presentation.c
+        src/screenshot.c
         src/imgui_impl_sdlrenderer3.cpp
         ${RECOMP_UI_ROOT}/src/common/recomp_runtime_ui.c
         ${RECOMP_UI_ROOT}/src/common/recomp_runtime_settings.c

@@ -27,6 +27,10 @@ typedef struct FZeroImGui FZeroImGui;
 FZeroImGui *fzero_imgui_create(SDL_Window *window, SDL_Renderer *renderer);
 void fzero_imgui_destroy(FZeroImGui *ig);
 
+/* Brief status message, rendered outside the captured game composite. */
+void fzero_imgui_notify(FZeroImGui *ig, const char *message);
+int fzero_imgui_has_notification(FZeroImGui *ig);
+
 /* Forward mouse/window events to the ImGui platform backend (only meaningful
  * while the overlay is open, so the host gates calls on that). */
 void fzero_imgui_process_event(FZeroImGui *ig, const SDL_Event *event);

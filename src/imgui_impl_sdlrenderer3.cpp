@@ -206,7 +206,7 @@ void ImGui_ImplSDLRenderer3_RenderDrawData(ImDrawData* draw_data, SDL_Renderer* 
                         xy, sizeof(ImDrawVert),
                         color, sizeof(SDL_FColor),
                         uv, sizeof(ImDrawVert),
-                        pcmd->ElemCount,
+                        draw_list->VtxBuffer.Size - pcmd->VtxOffset,
                         idx_buffer + pcmd->IdxOffset, pcmd->ElemCount,
                         (int)sizeof(ImDrawIdx))) {
                     // The official backend ignores this; a failed geometry

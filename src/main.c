@@ -56,6 +56,7 @@
 #include "fzero_layers.h"
 #include "desktop/sdl_compat.h"
 #include "presentation.h"
+#include "screenshot.h"
 
 #if defined(RECOMP_LAUNCHER)
 #include "recomp_launcher.h"   /* recomp_launcher_run_window() ABI */
@@ -783,7 +784,17 @@ int main(int argc, char **argv) {
       else ++validated_frames;
     }
 #if defined(RECOMP_LAUNCHER) && SNESRECOMP_SDL3
-    if ((overlay_open || settings.show_fps) && g_runtime_imgui)
+    if (FZeroRuntimeUiTakeScreenshotRequest(g_runtime_ui)) {
+      char path[256];
+      if (FZeroScreenshotSave(g_renderer, "screenshots", path, sizeof(path))) {
+        fprintf(stderr, "[Screenshot] Saved %s\n", path);
+        fzero_imgui_notify(g_runtime_imgui, "Screenshot saved to screenshots folder");
+      } else {
+        fprintf(stderr, "[Screenshot] Failed: %s\n", SDL_GetError());
+        fzero_imgui_notify(g_runtime_imgui, "Screenshot could not be saved");
+      }
+    }
+    if ((overlay_open || settings.show_fps || fzero_imgui_has_notification(g_runtime_imgui)) && g_runtime_imgui)
       /* Draws the menu and restores the full-target viewport + 256x224
        * logical presentation before returning (SDL3 reinterprets a stale
        * concrete viewport in logical coordinates once the scale changes,

@@ -27,7 +27,8 @@ void FZeroPresentationSetWidescreen(FZeroPresentation *video, bool widescreen);
 /* Compose at native resolution before scaling, preserving filtering at HUD
  * edges. The menu and FPS pass follow this call with default shader state. */
 bool FZeroPresentationDraw(FZeroPresentation *video);
-/* Read the native composite for an explicit diagnostic, never normal play. */
+/* Read the completed native/wide composite for a diagnostic.
+ * GPU readback is on demand, not part of the normal per-frame render path. */
 SDL_Surface *FZeroPresentationReadComposite(FZeroPresentation *video);
 /* Slow diagnostic: compare GPU RGB output with the original PPU image. */
 bool FZeroPresentationMatches(FZeroPresentation *video, const void *reference);

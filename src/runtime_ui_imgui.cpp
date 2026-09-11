@@ -26,6 +26,8 @@
 
 struct FZeroImGui {
   ImGuiContext *ctx;
+  char notification[128];
+  Uint64 notification_until;
 };
 
 extern "C" FZeroImGui *fzero_imgui_create(SDL_Window *window,
@@ -73,7 +75,7 @@ extern "C" FZeroImGui *fzero_imgui_create(SDL_Window *window,
     return nullptr;
   }
 
-  FZeroImGui *ig = (FZeroImGui *)malloc(sizeof(*ig));
+  FZeroImGui *ig = (FZeroImGui *)calloc(1, sizeof(*ig));
   if (!ig) {
     ImGui_ImplSDLRenderer3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
@@ -91,6 +93,16 @@ extern "C" void fzero_imgui_destroy(FZeroImGui *ig) {
   ImGui_ImplSDL3_Shutdown();
   ImGui::DestroyContext(ig->ctx);
   free(ig);
+}
+
+extern "C" void fzero_imgui_notify(FZeroImGui *ig, const char *message) {
+  if (!ig) return;
+  snprintf(ig->notification, sizeof(ig->notification), "%s", message);
+  ig->notification_until = SDL_GetTicks() + 3000;
+}
+
+extern "C" int fzero_imgui_has_notification(FZeroImGui *ig) {
+  return ig && SDL_GetTicks() < ig->notification_until;
 }
 
 extern "C" void fzero_imgui_process_event(FZeroImGui *ig,
@@ -131,6 +143,14 @@ extern "C" void fzero_imgui_render_overlay(FZeroImGui *ig,
     draw->AddRectFilled(ImVec2(8, 8), ImVec2(size.x + 24, size.y + 20),
                         IM_COL32(0, 0, 0, 200), 4.0f);
     draw->AddText(ImVec2(16, 14), IM_COL32(255, 255, 255, 255), label);
+  }
+  if (fzero_imgui_has_notification(ig)) {
+    ImVec2 size = ImGui::CalcTextSize(ig->notification);
+    float y = ImGui::GetIO().DisplaySize.y - size.y - 24;
+    ImDrawList *draw = ImGui::GetForegroundDrawList();
+    draw->AddRectFilled(ImVec2(8, y - 6), ImVec2(size.x + 24, y + size.y + 6),
+                        IM_COL32(0, 0, 0, 220), 4.0f);
+    draw->AddText(ImVec2(16, y), IM_COL32(255, 255, 255, 255), ig->notification);
   }
   ImGui::Render();
   ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);

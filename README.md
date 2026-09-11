@@ -169,6 +169,7 @@ The ZIP contains no ROM, generated C, recordings, or user data.
 | Start / Select | Enter / Backspace |
 | Settings | F1 |
 | FPS readout | F |
+| Screenshot | F12 |
 | Quit, with settings closed | Esc |
 
 Connect a gamepad before launch and select Gamepad as the input source. The
@@ -180,6 +181,17 @@ Controller page and are loaded when you press Play.
 F1 or gamepad Select+Start opens settings and pauses gameplay and audio.
 **Display** contains Widescreen, Visual Style, and FPS Readout. The launcher's
 generic save-state, rewind, and reset shortcuts are not connected to this host.
+
+**F12** saves a timestamped PNG to `screenshots/` beside the executable (packaged
+Mac app: `~/Library/Application Support/FZeroRecomp/screenshots/`). You can also
+choose **System → Take Screenshot (F12)** in the in-game settings, including with
+a gamepad. On Mac keyboards configured for media keys, use **Fn+F12**.
+The fixed shortcut works during gameplay and while settings are open. Captures
+include the visual style and game HUD at the window's pixel resolution, after
+scaling, stretching and bilinear filtering, including any letterboxing. Fullscreen
+and high-DPI captures use the renderer's actual output resolution. Settings,
+FPS readout, and notifications are excluded. A brief
+message confirms success or failure. Keep `screenshots/` when updating the game.
 
 For source builds, keep the executable and its `assets/` folder together in a
 writable directory.

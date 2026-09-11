@@ -10,6 +10,10 @@
 #include "runtime_ui.h"
 #include "runtime_ui_imgui.h"
 #include "presentation.h"
+#include "screenshot.h"
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG
+#include "third_party/stb_image.h"
 
 #define CHECK(expr) do { if (!(expr)) { \
   fprintf(stderr, "%s:%d: %s failed (%s)\n", __FILE__, __LINE__, #expr, SDL_GetError()); \
@@ -108,6 +112,18 @@ static void TestMenu(void) {
       SDL_TEXTUREACCESS_STREAMING, 256, 224); CHECK(texture);
   FZeroRuntimeUi *rt = FZeroRuntimeUiCreate(&s, window, renderer, texture, NULL); CHECK(rt);
   FZeroImGui *ig = fzero_imgui_create(window, renderer); CHECK(ig);
+  CHECK(!FZeroRuntimeUiTakeScreenshotRequest(rt));
+  CHECK(Key(rt, SDL_SCANCODE_F12, 1));
+  CHECK(FZeroRuntimeUiTakeScreenshotRequest(rt));
+  CHECK(!FZeroRuntimeUiTakeScreenshotRequest(rt));
+  CHECK(Key(rt, SDL_SCANCODE_F12, 0));
+  SDL_Event shot_repeat = {0}; shot_repeat.type = SDL_EVENT_KEY_DOWN;
+  shot_repeat.key.scancode = SDL_SCANCODE_F12; shot_repeat.key.repeat = true;
+  CHECK(FZeroRuntimeUiHandleEvent(rt, &shot_repeat));
+  CHECK(!FZeroRuntimeUiTakeScreenshotRequest(rt));
+  shot_repeat.key.repeat = false; shot_repeat.key.mod = SDL_KMOD_SHIFT;
+  CHECK(FZeroRuntimeUiHandleEvent(rt, &shot_repeat));
+  CHECK(!FZeroRuntimeUiTakeScreenshotRequest(rt));
   CHECK(Key(rt, SDL_SCANCODE_F, 1)); CHECK(s.show_fps);
   CHECK(Key(rt, SDL_SCANCODE_F, 0)); CHECK(s.show_fps);
   SDL_Event repeat = {0}; repeat.type = SDL_EVENT_KEY_DOWN;
@@ -142,6 +158,9 @@ static void TestMenu(void) {
   CHECK(!Button(rt, SDL_GAMEPAD_BUTTON_START, 1));
   CHECK(!Button(rt, SDL_GAMEPAD_BUTTON_START, 0));
   CHECK(Key(rt, SDL_SCANCODE_F1, 1)); CHECK(FZeroRuntimeUiIsOpen(rt));
+  CHECK(Key(rt, SDL_SCANCODE_F12, 1));
+  CHECK(FZeroRuntimeUiTakeScreenshotRequest(rt));
+  CHECK(FZeroRuntimeUiIsOpen(rt));
   CHECK(Key(rt, SDL_SCANCODE_Z, 1)); CHECK(Key(rt, SDL_SCANCODE_Z, 0));
   CHECK(Key(rt, SDL_SCANCODE_F1, 0));
   for (int i = 0; i < 3; ++i) {
@@ -197,6 +216,34 @@ static void TestMenu(void) {
   Key(rt, SDL_SCANCODE_F1, 1); CHECK(!FZeroRuntimeUiIsOpen(rt));
   FZeroRuntimeUiResetPad(rt);
   CHECK(!Button(rt, SDL_GAMEPAD_BUTTON_START, 1)); CHECK(!FZeroRuntimeUiIsOpen(rt));
+  /* Use a fresh menu to exercise the public gamepad route to System/capture. */
+  FZeroRuntimeUiDestroy(rt);
+  rt = FZeroRuntimeUiCreate(&s, window, renderer, texture, NULL); CHECK(rt);
+  FZeroRuntimeUiOpen(rt);
+  for (int i = 0; i < 3; ++i) Button(rt, SDL_GAMEPAD_BUTTON_DPAD_DOWN, 1);
+  Button(rt, SDL_GAMEPAD_BUTTON_SOUTH, 1);
+  for (int i = 0; i < 2; ++i) Button(rt, SDL_GAMEPAD_BUTTON_DPAD_DOWN, 1);
+  Button(rt, SDL_GAMEPAD_BUTTON_SOUTH, 1);
+  CHECK(FZeroRuntimeUiTakeScreenshotRequest(rt));
+  CHECK(!FZeroRuntimeUiTakeScreenshotRequest(rt));
+  CHECK(FZeroRuntimeUiIsOpen(rt));
+  Key(rt, SDL_SCANCODE_F1, 1);
+  CHECK(!fzero_imgui_has_notification(ig));
+  fzero_imgui_notify(ig, "Screenshot saved to screenshots folder");
+  CHECK(fzero_imgui_has_notification(ig));
+  SDL_SetRenderDrawColor(renderer, 20, 40, 60, 255);
+  SDL_RenderClear(renderer);
+  fzero_imgui_render_overlay(ig, rt, renderer, 0, 0);
+  SDL_Surface *notice_raw = SDL_RenderReadPixels(renderer, NULL); CHECK(notice_raw);
+  SDL_Surface *notice = SDL_ConvertSurface(notice_raw, SDL_PIXELFORMAT_ARGB8888); CHECK(notice);
+  int notice_changed = 0;
+  for (int y = notice->h - 40; y < notice->h - 10; ++y) {
+    Uint32 *row = (Uint32 *)((Uint8 *)notice->pixels + y * notice->pitch);
+    for (int x = 8; x < 150; ++x) notice_changed += (row[x] & 0xffffff) != 0x14283c;
+  }
+  CHECK(notice_changed > 100);
+  SDL_DestroySurface(notice); SDL_DestroySurface(notice_raw);
+  CHECK(SDL_RenderPresent(renderer));
   fzero_imgui_destroy(ig); FZeroRuntimeUiDestroy(rt);
   SDL_DestroyTexture(texture); FZeroPresentationDestroy(presentation); SDL_DestroyWindow(window);
 }
@@ -229,6 +276,45 @@ static void TestFps(void) {
   CHECK(!FZeroFpsHotkeyLoad("fps-bind.ini").key);
 }
 
+static void CheckScreenshot(FZeroPresentation *video) {
+  SDL_Renderer *renderer = FZeroPresentationRenderer(video);
+  int width, height, logical_w, logical_h;
+  SDL_RendererLogicalPresentation mode;
+  CHECK(SDL_GetRenderOutputSize(renderer, &width, &height));
+  CHECK(SDL_GetRenderLogicalPresentation(renderer, &logical_w, &logical_h, &mode));
+  char first[256], second[256];
+  CHECK(FZeroScreenshotSave(renderer, "screenshots", first, sizeof(first)));
+  CHECK(FZeroScreenshotSave(renderer, "screenshots", second, sizeof(second)));
+  CHECK(strcmp(first, second));
+  int restored_w, restored_h;
+  SDL_RendererLogicalPresentation restored_mode;
+  CHECK(SDL_GetRenderLogicalPresentation(renderer, &restored_w, &restored_h, &restored_mode));
+  CHECK(restored_w == logical_w && restored_h == logical_h && restored_mode == mode);
+  CHECK(!SDL_RenderViewportSet(renderer));
+  CHECK(SDL_SetRenderLogicalPresentation(renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED));
+  SDL_Surface *raw = SDL_RenderReadPixels(renderer, NULL); CHECK(raw);
+  CHECK(SDL_SetRenderLogicalPresentation(renderer, logical_w, logical_h, mode));
+  SDL_Surface *rgb = SDL_ConvertSurface(raw, SDL_PIXELFORMAT_RGB24); CHECK(rgb);
+  CHECK(rgb->w == width && rgb->h == height);
+  for (int i = 0; i < 2; ++i) {
+    int w, h, channels;
+    unsigned char *png = stbi_load(i ? second : first, &w, &h, &channels, 3);
+    CHECK(png && w == width && h == height && channels == 3);
+    for (int y = 0; y < h; ++y)
+      CHECK(!memcmp(png + y * w * 3, (Uint8 *)rgb->pixels + y * rgb->pitch, (size_t)w * 3));
+    stbi_image_free(png);
+  }
+  CHECK(!SDL_GetRenderTarget(FZeroPresentationRenderer(video)));
+  SDL_DestroySurface(rgb); SDL_DestroySurface(raw);
+  CHECK(remove(first) == 0); CHECK(remove(second) == 0);
+  Write("screenshot-blocked", "a file, not a directory");
+  CHECK(!FZeroScreenshotSave(renderer, "screenshot-blocked", first, sizeof(first)));
+  CHECK(!first[0] && SDL_GetError()[0]);
+  CHECK(remove("screenshot-blocked") == 0);
+  CHECK(!FZeroScreenshotSave(renderer, "screenshots", first, 4));
+  CHECK(!first[0]);
+}
+
 static void TestPresentation(void) {
   SDL_Window *window = SDL_CreateWindow("Synthetic presentation", 768, 672, getenv("FZERO_TEST_GPU") ? 0 : SDL_WINDOW_HIDDEN);
   CHECK(window);
@@ -257,8 +343,8 @@ static void TestPresentation(void) {
     if (i == 2) {
       CHECK(SDL_SetWindowSize(window, 1001, 733));
       SettleWindow(window, renderer);
-      settings.ignore_aspect = 1;
     }
+    settings.ignore_aspect = i == 3; /* 3x, letterboxed resize, then stretch. */
     CHECK(SDL_SetTextureScaleMode(texture, i & 1 ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST));
     CHECK(SDL_SetTextureScaleMode(reference, i & 1 ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST));
     FZeroRuntimeUiReapplyLogicalPresentation(renderer, &settings);
@@ -266,6 +352,7 @@ static void TestPresentation(void) {
     CHECK(SDL_RenderClear(renderer));
     CHECK(FZeroPresentationDraw(video));
     CHECK(FZeroPresentationMatches(video, expected));
+    CheckScreenshot(video);
     CHECK(SDL_GetRenderTarget(renderer) == NULL);
     SDL_Surface *raw = FZeroPresentationReadComposite(video); CHECK(raw);
     SDL_Surface *pixels = SDL_ConvertSurface(raw, SDL_PIXELFORMAT_ARGB8888); CHECK(pixels);
@@ -344,6 +431,7 @@ static void TestPresentation(void) {
     FZeroRuntimeUiReapplyLogicalPresentation(renderer, &settings);
     FZeroPresentationSetStyle(video, (FZeroVisualStyle)style);
     CHECK(FZeroPresentationDraw(video));
+    CheckScreenshot(video);
     SDL_Surface *raw = FZeroPresentationReadComposite(video); CHECK(raw);
     SDL_Surface *pixels = SDL_ConvertSurface(raw, SDL_PIXELFORMAT_ARGB8888); CHECK(pixels);
     for (int y = 0; y < 224; ++y)
@@ -366,6 +454,8 @@ static void TestPresentation(void) {
           CHECK((row[x] & 0xffffff) == wide_world[y][x]);
     }
     SDL_DestroySurface(pixels); SDL_DestroySurface(raw);
+    /* Match the host order: capture the scaled game before any overlay. */
+    CheckScreenshot(video);
     fzero_imgui_render_overlay(ig, rt, renderer, 1, 60.0);
     int w, h; SDL_RendererLogicalPresentation mode;
     CHECK(SDL_GetRenderLogicalPresentation(renderer, &w, &h, &mode));

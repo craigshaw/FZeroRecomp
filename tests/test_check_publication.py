@@ -21,7 +21,7 @@ def write(repo, name, text):
 
 
 def test_private_paths_and_compound_extensions():
-    for name in ("reference/input.txt", "build-debug/log.txt", "file.srm.bak",
+    for name in ("reference/input.txt", "build-debug/log.txt", "screenshots/game.png", "file.srm.bak",
                  "file.labels", "file.asm", "archive.tar.gz", "history.bundle"):
         assert violation(PurePosixPath(name)), name
     assert violation(PurePosixPath("src/main.c")) is None

@@ -34,12 +34,15 @@ void FZeroRuntimeUiOpen(FZeroRuntimeUi *rt);
 
 /* Route a KEY_DOWN/UP or gamepad BUTTON/AXIS event to the menu. Returns 1
  * when the event was consumed; 0 passes it through to the game. Keyboard: F1
- * toggles the menu; every other key reaches the game when the menu is closed
+ * toggles the menu, F12 requests a screenshot; other unhandled keys reach the game when the menu is closed
  * and is withheld while it is open. Gamepad: Select+Start together opens the
  * menu (Start alone stays the game's button); while open A=accept, B=back,
  * Start=close, D-pad navigates. */
 int FZeroRuntimeUiHandleEvent(FZeroRuntimeUi *rt,
                                     const SDL_Event *event);
+
+/* Consume the pending F12/menu capture request after drawing the game. */
+int FZeroRuntimeUiTakeScreenshotRequest(FZeroRuntimeUi *rt);
 
 /* Re-apply the renderer's selected logical presentation from settings (used by
  * the stretch live-apply). */
