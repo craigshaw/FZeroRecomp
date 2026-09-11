@@ -1,0 +1,225 @@
+From 028450f8a72d81b3b2bcc22f9f9e63d542168d94 Mon Sep 17 00:00:00 2001
+From: Craig Shaw <craig@craigshaw.com>
+Date: Fri, 4 Sep 2026 17:06:36 +0100
+Subject: [PATCH 4/4] Decode dispatch helpers at observed entry widths
+
+---
+ recompiler/v2/decoder.py                     |  5 ++-
+ tests/v2/test_dispatch_helper_entry_width.py | 33 ++++++++++++++++
+ tools/v2_analyze.py                          | 40 +++++++++++++++-----
+ tools/v2_regen.py                            | 24 ++++++++----
+ 4 files changed, 82 insertions(+), 20 deletions(-)
+ create mode 100644 tests/v2/test_dispatch_helper_entry_width.py
+
+diff --git a/recompiler/v2/decoder.py b/recompiler/v2/decoder.py
+index 8737664..4c723c5 100644
+--- a/recompiler/v2/decoder.py
++++ b/recompiler/v2/decoder.py
+@@ -1576,7 +1576,8 @@ def detect_inline_arg_bytes(rom: bytes, bank: int, addr: int,
+     return detect_dp_return_inline_arg_bytes(rom, bank, addr)
+ 
+ 
+-def classify_dispatch_helper(rom: bytes, bank: int, addr: int):
++def classify_dispatch_helper(rom: bytes, bank: int, addr: int,
++                             entry_m: int = 1, entry_x: int = 1):
+     """Identify whether the subroutine at (bank, addr) is a JSL-jump-table
+     dispatch helper. Returns 'short' (16-bit table entries), 'long'
+     (24-bit table entries), or None.
+@@ -1596,7 +1597,7 @@ def classify_dispatch_helper(rom: bytes, bank: int, addr: int):
+                             INDIR_L)
+     insns = []
+     pc = addr & 0xFFFF
+-    m, x = 1, 1
++    m, x = entry_m & 1, entry_x & 1
+     safety = 0
+     while safety < 256:
+         safety += 1
+diff --git a/tests/v2/test_dispatch_helper_entry_width.py b/tests/v2/test_dispatch_helper_entry_width.py
+new file mode 100644
+index 0000000..b9134f5
+--- /dev/null
++++ b/tests/v2/test_dispatch_helper_entry_width.py
+@@ -0,0 +1,33 @@
++"""Dispatch-helper probes must decode at the caller's exact M/X state."""
++
++from v2.decoder import classify_dispatch_helper  # noqa: E402
++
++
++def test_x16_call_does_not_accept_x8_misalignment_as_dispatch_helper():
++    rom = bytearray(0x8000)
++    # Invented helper-shaped routine. With X=0, LDX consumes its full 16-bit
++    # immediate and the body has no stack pull, so this is not an ExecutePtr
++    # dispatcher. Misdecoding it at X=1 leaves the immediate's high byte in
++    # the opcode stream and turns $68 in the following STX address into PLA,
++    # producing a false structural match.
++    body = bytes([
++        0x22, 0x00, 0x81, 0x00,       # JSL $00:8100
++        0xA2, 0x00, 0x00,             # LDX #$0000 (X=0)
++        0x8E, 0x68, 0x12,             # STX $1268
++        0x8E, 0x6A, 0x12,             # STX $126A
++        0xA9, 0x00,                   # LDA #$00
++        0xEB,                         # XBA
++        0xB9, 0x01, 0x12,             # LDA $1201,Y
++        0x0A, 0xAA,                   # ASL A / TAX
++        0xBF, 0x00, 0x82, 0x00,       # LDA $00:8200,X
++        0x85, 0x20,                   # STA $20
++        0xBF, 0x01, 0x82, 0x00,       # LDA $00:8201,X
++        0x85, 0x21,                   # STA $21
++        0x6C, 0x20, 0x00,             # JMP ($0020)
++    ])
++    rom[:len(body)] = body
++
++    assert classify_dispatch_helper(bytes(rom), 0, 0x8000, 1, 0) is None
++    # This assertion pins the motivating ambiguity: the same bytes are a
++    # false positive if a caller ignores its known X=0 state.
++    assert classify_dispatch_helper(bytes(rom), 0, 0x8000, 1, 1) == "short"
+diff --git a/tools/v2_analyze.py b/tools/v2_analyze.py
+index 3fad687..6045610 100644
+--- a/tools/v2_analyze.py
++++ b/tools/v2_analyze.py
+@@ -582,6 +582,8 @@ def build_manifest(rom: bytes, parsed, *, max_insns: int, max_nodes: int,
+     dispatch_helpers = {}
+     inline_arg_map = {}
+     dispatch_helper_probes = set()
++    dispatch_helper_probe_kinds = {}
++    dispatch_helper_revision = 0
+     inline_arg_probes = set()
+ 
+     def target_is_code(key: VariantKey) -> bool:
+@@ -604,7 +606,7 @@ def build_manifest(rom: bytes, parsed, *, max_insns: int, max_nodes: int,
+         return True
+ 
+     def decode_variant(key: VariantKey):
+-        nonlocal dispatch_helpers, inline_arg_map
++        nonlocal dispatch_helpers, dispatch_helper_revision, inline_arg_map
+         bank = (key.pc24 >> 16) & 0xFF
+         pc = key.pc24 & 0xFFFF
+         mirror_bank = _lorom_mirror_bank(bank)
+@@ -657,23 +659,40 @@ def build_manifest(rom: bytes, parsed, *, max_insns: int, max_nodes: int,
+         # code. Discover them at their first reachable call site, replace the
+         # immutable input snapshot, and re-decode this node once with the new
+         # facts. No generated-C feedback and no retained speculative CFGs.
+-        helper_additions = {}
++        helper_changed = False
+         inline_additions = {}
+         for decoded in graph.insns.values():
+             insn = decoded.insn
+             if insn.mnem == "JSL" or (
+                     insn.mnem == "JMP" and insn.length == 4):
+                 target = insn.operand & 0xFFFFFF
+-                if (target not in dispatch_helpers
+-                        and target not in dispatch_helper_probes):
+-                    dispatch_helper_probes.add(target)
++                probe = (target, insn.m_flag & 1, insn.x_flag & 1)
++                if probe not in dispatch_helper_probes:
++                    dispatch_helper_probes.add(probe)
+                     try:
+                         kind = classify_dispatch_helper(
+-                            rom, (target >> 16) & 0xFF, target & 0xFFFF)
++                            rom, (target >> 16) & 0xFF, target & 0xFFFF,
++                            insn.m_flag, insn.x_flag)
+                     except (AssertionError, IndexError):
+                         kind = None
+-                    if kind:
+-                        helper_additions[target] = kind
++                    dispatch_helper_probe_kinds[probe] = kind
++                    observed_kinds = {
++                        observed_kind
++                        for (observed_target, _m, _x), observed_kind
++                        in dispatch_helper_probe_kinds.items()
++                        if observed_target == target
++                    }
++                    agreed_kind = (next(iter(observed_kinds))
++                                   if len(observed_kinds) == 1
++                                   and None not in observed_kinds else None)
++                    previous_kind = dispatch_helpers.get(target)
++                    if agreed_kind is None:
++                        dispatch_helpers.pop(target, None)
++                    else:
++                        dispatch_helpers[target] = agreed_kind
++                    if previous_kind != agreed_kind:
++                        dispatch_helper_revision += 1
++                        helper_changed = True
+             if insn.mnem == "JSL":
+                 target = insn.operand & 0xFFFFFF
+             elif insn.mnem == "JSR" and insn.length == 3:
+@@ -697,8 +716,7 @@ def build_manifest(rom: bytes, parsed, *, max_insns: int, max_nodes: int,
+                 if byte_count_probes == 4 and len(byte_counts) == 1:
+                     inline_additions[target] = byte_counts.pop()
+ 
+-        if helper_additions or inline_additions:
+-            dispatch_helpers = {**dispatch_helpers, **helper_additions}
++        if helper_changed or inline_additions:
+             inline_arg_map = {**inline_arg_map, **inline_additions}
+             kwargs["dispatch_helpers"] = dispatch_helpers or None
+             kwargs["inline_arg_map"] = inline_arg_map or None
+@@ -847,6 +865,7 @@ def build_manifest(rom: bytes, parsed, *, max_insns: int, max_nodes: int,
+             round_exit_mode_sets = {}
+             round_exit_equations = {}
+             before_helpers = dict(dispatch_helpers)
++            before_helper_revision = dispatch_helper_revision
+             before_inline = dict(inline_arg_map)
+             before_poisoned = set(poisoned_variants)
+             clear_decode_cache()
+@@ -934,6 +953,7 @@ def build_manifest(rom: bytes, parsed, *, max_insns: int, max_nodes: int,
+                 next_exit_modes == active_exit_modes
+                 and next_exit_mode_sets == active_exit_mode_sets
+                 and before_helpers == dispatch_helpers
++                and before_helper_revision == dispatch_helper_revision
+                 and before_inline == inline_arg_map
+                 and before_poisoned == poisoned_variants)
+             active_exit_modes = next_exit_modes
+diff --git a/tools/v2_regen.py b/tools/v2_regen.py
+index 60bad96..3a60423 100644
+--- a/tools/v2_regen.py
++++ b/tools/v2_regen.py
+@@ -1305,7 +1305,7 @@ def main() -> int:
+     _phase("dispatch_helper_discovery")
+     print("Auto-detecting JSL dispatch helpers...")
+     dispatch_helpers: dict = {}
+-    jsl_targets: set = set()
++    jsl_target_states: dict = {}
+     call_targets: set = set()   # every JSR/JSL target (for inline-arg scan)
+     for bank, _cfg_path, cfg in parsed:
+         for entry in cfg.entries:
+@@ -1320,22 +1320,30 @@ def main() -> int:
+                 ins = di.insn
+                 # JSL or JML (JMP LONG)
+                 if ins.mnem == 'JSL':
+-                    jsl_targets.add(ins.operand & 0xFFFFFF)
+-                    call_targets.add(ins.operand & 0xFFFFFF)
++                    target = ins.operand & 0xFFFFFF
++                    jsl_target_states.setdefault(target, set()).add(
++                        (ins.m_flag & 1, ins.x_flag & 1))
++                    call_targets.add(target)
+                 elif ins.mnem == 'JMP' and ins.length == 4:
+-                    jsl_targets.add(ins.operand & 0xFFFFFF)
++                    target = ins.operand & 0xFFFFFF
++                    jsl_target_states.setdefault(target, set()).add(
++                        (ins.m_flag & 1, ins.x_flag & 1))
+                 elif ins.mnem == 'JSR' and ins.length == 3:
+                     call_targets.add((bank << 16) | (ins.operand & 0xFFFF))
+     classified = {'short': 0, 'long': 0}
+-    for tgt in jsl_targets:
++    for tgt, entry_states in jsl_target_states.items():
+         tbank = (tgt >> 16) & 0xFF
+         taddr = tgt & 0xFFFF
+-        kind = classify_dispatch_helper(rom, tbank, taddr)
+-        if kind:
++        kinds = {
++            classify_dispatch_helper(rom, tbank, taddr, entry_m, entry_x)
++            for entry_m, entry_x in entry_states
++        }
++        kind = next(iter(kinds)) if len(kinds) == 1 else None
++        if kind is not None:
+             dispatch_helpers[tgt] = kind
+             classified[kind] += 1
+     print(f"  detected {classified['short']} short + {classified['long']} long dispatch helpers "
+-          f"(scanned {len(jsl_targets)} JSL/JML targets)")
++          f"(scanned {len(jsl_target_states)} JSL/JML targets)")
+ 
+     # Auto-detect JSR/JSL INLINE-ARGUMENT routines (no cfg hint — the
+     # byte count is a property of the callee's own code; see
+-- 
+2.50.1 (Apple Git-155)
+

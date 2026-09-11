@@ -1,0 +1,38 @@
+.DS_Store
+__pycache__/
+.pytest_cache/
+
+# Local build and generated recompilation output.
+/build*/
+/generated/
+
+# Local launcher state (normally written beside the executable).
+/config.ini
+/config.ini.tmp
+/keybinds.ini
+/rom.cfg
+
+# Private inputs and runtime evidence. Never publish these.
+/reference/
+/saves/
+/captures/
+/evidence/
+/recordings/
+/replays/
+/traces/
+/workspaces/
+/project.txt
+/*.sfc
+/*.smc
+/*.fig
+/*.srm
+/*.srm.bak
+/*.state
+/*.jsonl
+*.sqlite
+*.sqlite-*
+*.mmo
+tier2_*.json
+
+# Local agent instructions.
+/AGENTS.md

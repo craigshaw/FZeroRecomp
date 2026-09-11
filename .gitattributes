@@ -1,0 +1,2 @@
+# Patch payloads preserve source line endings and email-patch separators.
+patches/snesrecomp/*.patch -whitespace

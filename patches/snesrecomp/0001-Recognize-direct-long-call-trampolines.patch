@@ -1,0 +1,833 @@
+From 8229f70307127d90b64f90b90fd9c3d9c98b3450 Mon Sep 17 00:00:00 2001
+From: Craig Shaw <craig@craigshaw.com>
+Date: Thu, 10 Sep 2026 22:56:37 +0100
+Subject: [PATCH 1/6] Recognize direct long-call trampolines
+
+Integrate the reviewed F-Zero dependency patch 0001-Recognize-direct-long-call-trampolines.patch from craigshaw/FZeroRecomp.
+
+Co-authored-by: Codex <codex@openai.com>
+---
+ recompiler-rs/src/bin/analyze.rs              |  12 +-
+ recompiler-rs/src/decoder.rs                  | 213 +++++++++++++++++-
+ recompiler-rs/src/insn.rs                     |  13 ++
+ recompiler/snes65816.py                       |   8 +-
+ recompiler/v2/decoder.py                      | 119 +++++++++-
+ recompiler/v2/emit_function.py                |  36 ++-
+ recompiler/v2/program_analysis.py             |  22 +-
+ tests/v2/run_tests.py                         |   1 +
+ tests/v2/test_direct_long_call_trampolines.py | 131 +++++++++++
+ 9 files changed, 540 insertions(+), 15 deletions(-)
+ create mode 100644 tests/v2/test_direct_long_call_trampolines.py
+
+diff --git a/recompiler-rs/src/bin/analyze.rs b/recompiler-rs/src/bin/analyze.rs
+index f827e49..81daa04 100644
+--- a/recompiler-rs/src/bin/analyze.rs
++++ b/recompiler-rs/src/bin/analyze.rs
+@@ -521,7 +521,12 @@ fn summarize(
+             }
+             continue;
+         }
+-        let direct = if insn.mnem == "JSL" {
++        let direct = if let Some(target) = insn.long_call_trampoline_target {
++            Some((
++                "direct_call",
++                VariantKey::new(target, insn.m_flag, insn.x_flag),
++            ))
++        } else if insn.mnem == "JSL" {
+             Some((
+                 "direct_call",
+                 VariantKey::new(insn.operand, insn.m_flag, insn.x_flag),
+@@ -535,6 +540,11 @@ fn summarize(
+                     insn.x_flag,
+                 ),
+             ))
++        } else if insn.mnem == "JMP" && insn.length == 4 && insn.return_trampoline {
++            Some((
++                "direct_call",
++                VariantKey::new(insn.operand, insn.m_flag, insn.x_flag),
++            ))
+         } else if insn.mnem == "JMP" && insn.length == 4 {
+             Some((
+                 "direct_tail_call",
+diff --git a/recompiler-rs/src/decoder.rs b/recompiler-rs/src/decoder.rs
+index e29b3b8..647d64b 100644
+--- a/recompiler-rs/src/decoder.rs
++++ b/recompiler-rs/src/decoder.rs
+@@ -181,6 +181,21 @@ impl FunctionDecodeGraph {
+         &self.insns_vec
+     }
+ 
++    fn mark_call_trampoline_setup(&mut self, pc24s: &[u32]) -> bool {
++        if pc24s
++            .iter()
++            .any(|pc| !self.insns_vec.iter().any(|di| di.key.pc == *pc))
++        {
++            return false;
++        }
++        for di in &mut self.insns_vec {
++            if pc24s.contains(&di.key.pc) {
++                di.insn.call_trampoline_setup = true;
++            }
++        }
++        true
++    }
++
+     pub fn len(&self) -> usize {
+         self.insns_vec.len()
+     }
+@@ -880,6 +895,63 @@ fn pea_ptrcall_return_pc(
+     (pea_operand + 1) & 0xFFFF
+ }
+ 
++fn mapped_byte(
++    rom: &[u8],
++    mapping: RomMapping,
++    bank: u32,
++    pc: u32,
++    reloc: &[RelocRegion],
++) -> Option<u8> {
++    try_rom_offset(mapping, bank, pc & 0xFFFF, reloc).and_then(|off| rom.get(off).copied())
++}
++
++fn return_trampoline_pc(
++    rom: &[u8],
++    mapping: RomMapping,
++    bank: u32,
++    jml_pc: u32,
++    reloc: &[RelocRegion],
++) -> Option<u32> {
++    let phk_pc = jml_pc.wrapping_sub(4) & 0xFFFF;
++    let per_pc = jml_pc.wrapping_sub(3) & 0xFFFF;
++    if mapped_byte(rom, mapping, bank, phk_pc, reloc)? != 0x4B
++        || mapped_byte(rom, mapping, bank, per_pc, reloc)? != 0x62
++    {
++        return None;
++    }
++    let lo = mapped_byte(rom, mapping, bank, per_pc + 1, reloc)? as u16;
++    let hi = mapped_byte(rom, mapping, bank, per_pc + 2, reloc)? as u16;
++    let rel = (lo | (hi << 8)) as i16 as i32;
++    Some((((per_pc + 3) as i32 + rel + 1) as u32) & 0xFFFF)
++}
++
++fn long_jsr_trampoline_target(
++    rom: &[u8],
++    mapping: RomMapping,
++    bank: u32,
++    target: u32,
++    reloc: &[RelocRegion],
++) -> Option<u32> {
++    let first = mapped_byte(rom, mapping, bank, target, reloc)?;
++    if first == 0x5C {
++        let lo = mapped_byte(rom, mapping, bank, target + 1, reloc)? as u32;
++        let hi = mapped_byte(rom, mapping, bank, target + 2, reloc)? as u32;
++        let pb = mapped_byte(rom, mapping, bank, target + 3, reloc)? as u32;
++        return Some(lo | (hi << 8) | (pb << 16));
++    }
++    if first != 0xF4 || mapped_byte(rom, mapping, bank, target + 3, reloc)? != 0x5C {
++        return None;
++    }
++    let ret_lo = mapped_byte(rom, mapping, bank, target + 1, reloc)? as u32;
++    let ret_hi = mapped_byte(rom, mapping, bank, target + 2, reloc)? as u32;
++    let target_bank = mapped_byte(rom, mapping, bank, target + 6, reloc)? as u32;
++    let return_minus_one = ret_lo | (ret_hi << 8);
++    if mapped_byte(rom, mapping, target_bank, return_minus_one + 1, reloc)? != 0x6B {
++        return None;
++    }
++    Some(addr24(bank, target))
++}
++
+ /// Compute (DecodeKey, edge_kind) successor tuples for one decoded insn. Port of
+ /// `_labeled_successors`.
+ fn labeled_successors(
+@@ -916,7 +988,8 @@ fn labeled_successors(
+             ),
+         ];
+     }
+-    if mnem == "JMP" {
++    let is_return_trampoline = mnem == "JMP" && insn.mode == Mode::Long && insn.return_trampoline;
++    if mnem == "JMP" && !is_return_trampoline {
+         if insn.mode == Mode::Abs {
+             return vec![(
+                 DecodeKey::with_stack(addr24(bank, insn.operand), post_m, post_x, post_p_stack),
+@@ -933,20 +1006,27 @@ fn labeled_successors(
+         return vec![];
+     }
+ 
+-    if mnem == "JSR" || mnem == "JSL" {
++    if mnem == "JSR" || mnem == "JSL" || is_return_trampoline {
+         if insn.terminal_jsr {
+             return vec![];
+         }
+         let (mut ret_m, mut ret_x) = (post_m, post_x);
+         let target_pc24: Option<u32> =
+             if mnem == "JSR" && insn.length == 3 && insn.mode != Mode::IndirX {
+-                Some(addr24(bank, insn.operand & 0xFFFF))
++                insn.long_call_trampoline_target
++                    .or(Some(addr24(bank, insn.operand & 0xFFFF)))
+             } else if mnem == "JSL" {
+                 Some(insn.operand & 0xFFFFFF)
++            } else if is_return_trampoline {
++                Some(insn.operand & 0xFFFFFF)
+             } else {
+                 None
+             };
+-        let mut eff_next_pc = next_pc;
++        let mut eff_next_pc = if is_return_trampoline {
++            insn.return_trampoline_pc.unwrap_or(next_pc) & 0xFFFF
++        } else {
++            next_pc
++        };
+         let skip_map = env.callee_inline_skip.or(env.global_inline_skip);
+         if let (Some(map), Some(tp)) = (skip_map, target_pc24) {
+             let mut skip = map.get(&tp).copied();
+@@ -1128,6 +1208,35 @@ pub fn decode_function(
+             .unwrap_or_else(|| panic!("v2 decoder: unknown opcode at ${bank:02X}:{pc:04X}"));
+         insn.m_flag = key.m;
+         insn.x_flag = key.x;
++        if insn.mnem == "JMP"
++            && insn.mode == Mode::Long
++            && pred_pc == (pc.wrapping_sub(3) & 0xFFFF) as i64
++        {
++            if let Some(return_pc) = return_trampoline_pc(rom, mapping, bank, pc, reloc) {
++                let setup = [
++                    addr24(bank, pc.wrapping_sub(4) & 0xFFFF),
++                    addr24(bank, pc.wrapping_sub(3) & 0xFFFF),
++                ];
++                if graph.mark_call_trampoline_setup(&setup) {
++                    insn.return_trampoline = true;
++                    insn.return_trampoline_pc = Some(return_pc);
++                }
++            }
++        } else if insn.mnem == "JSR"
++            && insn.mode != Mode::IndirX
++            && insn.length == 3
++            && pred_pc == (pc.wrapping_sub(1) & 0xFFFF) as i64
++            && mapped_byte(rom, mapping, bank, pc.wrapping_sub(1), reloc) == Some(0x4B)
++        {
++            if let Some(target) =
++                long_jsr_trampoline_target(rom, mapping, bank, insn.operand & 0xFFFF, reloc)
++            {
++                let setup = [addr24(bank, pc.wrapping_sub(1) & 0xFFFF)];
++                if graph.mark_call_trampoline_setup(&setup) {
++                    insn.long_call_trampoline_target = Some(target);
++                }
++            }
++        }
+         if env
+             .terminal_jsr_sites
+             .is_some_and(|sites| sites.contains(&(insn.addr & 0xFFFFFF)))
+@@ -2129,7 +2238,11 @@ fn direct_tail_exit_keys(graph: &FunctionDecodeGraph, di: &DecodedInsn) -> Vec<(
+     if !outside.is_empty() {
+         return outside;
+     }
+-    if ins.mnem == "JMP" && ins.length == 4 && ins.dispatch_entries.is_none() {
++    if ins.mnem == "JMP"
++        && ins.length == 4
++        && ins.dispatch_entries.is_none()
++        && !ins.return_trampoline
++    {
+         return vec![(ins.operand & 0xFFFFFF, ins.m_flag & 1, ins.x_flag & 1)];
+     }
+     Vec::new()
+@@ -2230,6 +2343,9 @@ fn entry_stack_restore_tcs_keys(graph: &FunctionDecodeGraph) -> HashSet<DecodeKe
+ /// `None` is an indeterminate height after TCS/TXS.
+ fn return_stack_delta_states(graph: &FunctionDecodeGraph) -> HashMap<u32, HashSet<Option<i32>>> {
+     fn local_delta(ins: &Insn) -> Option<i32> {
++        if ins.call_trampoline_setup {
++            return Some(0);
++        }
+         if ins.dispatch_consumed_stack_bytes != 0 {
+             return Some(-(ins.dispatch_consumed_stack_bytes as i32));
+         }
+@@ -3518,6 +3634,93 @@ mod tests {
+         assert!(rts.successors.is_empty());
+     }
+ 
++    #[test]
++    fn phk_per_jml_is_a_returning_long_call() {
++        let mut rom = vec![0xEA; 0x10000];
++        rom[..13].copy_from_slice(&[
++            0x08, // PHP
++            0xE2, 0x30, // SEP #$30
++            0x4B, // PHK
++            0x62, 0x03, 0x00, // PER $800A (return-1)
++            0x5C, 0x00, 0x90, 0x01, // JML $01:9000
++            0x28, // PLP
++            0x60, // RTS
++        ]);
++        rom[0x9000] = 0x6B; // bank 1:$9000 -> LoROM offset $9000
++        let exits = HashMap::from([((0x019000, 1, 1), (1, 1))]);
++        let env = DecodeEnv {
++            callee_exit_mx: Some(&exits),
++            stop_on_unknown_callee_exit: true,
++            ..DecodeEnv::default()
++        };
++        let graph = decode_function(&rom, 0, 0x8000, 0, 1, Some(0x800D), &env);
++        let jml = graph
++            .insns()
++            .iter()
++            .find(|di| di.insn.addr == 0x008007)
++            .unwrap();
++        assert!(jml.insn.return_trampoline);
++        assert_eq!(jml.insn.return_trampoline_pc, Some(0x800B));
++        assert_eq!(
++            analyze_function_exit_mx(&graph, Some(&exits)),
++            (Some(0), Some(1))
++        );
++        assert!(graph.unknown_callee_exit_sites.is_empty());
++    }
++
++    #[test]
++    fn phk_jsr_jml_veneer_targets_the_long_body() {
++        let mut rom = vec![0xEA; 0x10000];
++        rom[..5].copy_from_slice(&[0x4B, 0x20, 0x00, 0x82, 0x60]);
++        rom[0x0200..0x0204].copy_from_slice(&[0x5C, 0x00, 0x90, 0x01]);
++        rom[0x9000] = 0x6B;
++        let exits = HashMap::from([((0x019000, 1, 1), (1, 1))]);
++        let env = DecodeEnv {
++            callee_exit_mx: Some(&exits),
++            stop_on_unknown_callee_exit: true,
++            ..DecodeEnv::default()
++        };
++        let graph = decode_function(&rom, 0, 0x8000, 1, 1, Some(0x8005), &env);
++        let jsr = graph
++            .insns()
++            .iter()
++            .find(|di| di.insn.addr == 0x008001)
++            .unwrap();
++        assert_eq!(jsr.insn.long_call_trampoline_target, Some(0x019000));
++        assert_eq!(
++            analyze_function_exit_mx(&graph, Some(&exits)),
++            (Some(1), Some(1))
++        );
++        assert!(graph.unknown_callee_exit_sites.is_empty());
++    }
++
++    #[test]
++    fn phk_jsr_pea_jml_veneer_keeps_the_veneer_as_long_callee() {
++        let mut rom = vec![0xEA; 0x10000];
++        rom[..5].copy_from_slice(&[0x4B, 0x20, 0x00, 0x82, 0x60]);
++        rom[0x0200..0x0207].copy_from_slice(&[0xF4, 0xFB, 0x90, 0x5C, 0x00, 0x91, 0x01]);
++        rom[0x90FC] = 0x6B;
++        rom[0x9100] = 0x60;
++        let exits = HashMap::from([((0x008200, 1, 1), (1, 1))]);
++        let env = DecodeEnv {
++            callee_exit_mx: Some(&exits),
++            stop_on_unknown_callee_exit: true,
++            ..DecodeEnv::default()
++        };
++        let graph = decode_function(&rom, 0, 0x8000, 1, 1, Some(0x8005), &env);
++        let jsr = graph
++            .insns()
++            .iter()
++            .find(|di| di.insn.addr == 0x008001)
++            .unwrap();
++        assert_eq!(jsr.insn.long_call_trampoline_target, Some(0x008200));
++        assert_eq!(
++            analyze_function_exit_mx(&graph, Some(&exits)),
++            (Some(1), Some(1))
++        );
++        assert!(graph.unknown_callee_exit_sites.is_empty());
++    }
++
+     #[test]
+     fn ptrcall_uses_pea_return_without_inlining_explicit_target() {
+         // PEA $8008; JMP ($0010). The dispatched RTS resumes at $8009,
+diff --git a/recompiler-rs/src/insn.rs b/recompiler-rs/src/insn.rs
+index 72d680d..b5b6b8a 100644
+--- a/recompiler-rs/src/insn.rs
++++ b/recompiler-rs/src/insn.rs
+@@ -155,6 +155,15 @@ pub struct Insn {
+     /// Direct JSR whose callee consumes the call frame and never resumes the
+     /// lexical fall-through.
+     pub terminal_jsr: bool,
++    /// Direct JML reached through PHK;PER. It behaves as a long call and
++    /// resumes at `return_trampoline_pc` after the target's RTL.
++    pub return_trampoline: bool,
++    pub return_trampoline_pc: Option<u32>,
++    /// Direct JSR preceded by PHK whose local target is a one-JML veneer.
++    /// The value is the veneer JML's real 24-bit target.
++    pub long_call_trampoline_target: Option<u32>,
++    /// Explicit PHK/PER bookkeeping folded into a synthesized long call.
++    pub call_trampoline_setup: bool,
+     /// JSR (abs,X) through a pointer held in WRAM. The target is resolved by
+     /// the runtime dispatcher, but the call's fall-through remains reachable.
+     pub dispatch_runtime: bool,
+@@ -195,6 +204,10 @@ impl Insn {
+             dispatch_consumed_stack_bytes: 0,
+             dispatch_stack_pointer: false,
+             terminal_jsr: false,
++            return_trampoline: false,
++            return_trampoline_pc: None,
++            long_call_trampoline_target: None,
++            call_trampoline_setup: false,
+             dispatch_runtime: false,
+             dispatch_local_goto: false,
+             const_z_fold_unconditional: false,
+diff --git a/recompiler/snes65816.py b/recompiler/snes65816.py
+index 2cbc929..7e2116d 100644
+--- a/recompiler/snes65816.py
++++ b/recompiler/snes65816.py
+@@ -173,7 +173,9 @@ class Insn:
+                   'dispatch_forced_x', 'dispatch_consumed_stack_bytes',
+                   'dispatch_configured_stack_bytes',
+                   'const_z_fold_unconditional', 'const_z_fold_dead_pc24',
+-                  'data_region_exec', 'terminal_jsr', 'noreturn_jsr')
++                  'data_region_exec', 'terminal_jsr', 'noreturn_jsr',
++                  'return_trampoline', 'return_trampoline_pc',
++                  'long_call_trampoline_target', 'call_trampoline_setup')
+ 
+     def __init__(self, addr, opcode, mnem, mode, operand, length):
+         self.addr = addr
+@@ -236,6 +238,10 @@ class Insn:
+         # distinct from terminal_jsr: the target does not consume its frame as
+         # inline data, and the exceptional target remains an LLE safety path.
+         self.noreturn_jsr = False
++        self.return_trampoline = False
++        self.return_trampoline_pc = None
++        self.long_call_trampoline_target = None
++        self.call_trampoline_setup = False
+         self.m_flag = 1
+         self.x_flag = 1
+         # Constant-Z branch fold: when set on a BEQ/BNE, the preceding
+diff --git a/recompiler/v2/decoder.py b/recompiler/v2/decoder.py
+index a2aef88..8f52e18 100644
+--- a/recompiler/v2/decoder.py
++++ b/recompiler/v2/decoder.py
+@@ -1020,7 +1020,11 @@ def _labeled_successors(insn: Insn, key: DecodeKey, bank: int,
+             (DecodeKey(addr24(bank, insn.operand), post_m, post_x, post_p_stack), 'jump'),
+         ]
+ 
+-    if mnem == 'JMP':
++    is_return_trampoline = bool(
++        mnem == 'JMP' and insn.mode == LONG
++        and getattr(insn, 'return_trampoline', False))
++
++    if mnem == 'JMP' and not is_return_trampoline:
+         if insn.mode == ABS:
+             return [(DecodeKey(addr24(bank, insn.operand), post_m, post_x, post_p_stack), 'jump')]
+         # INDIR / INDIR_X (table-dispatch) and LONG (cross-bank) — no
+@@ -1045,7 +1049,7 @@ def _labeled_successors(insn: Insn, key: DecodeKey, bank: int,
+     # p_stack is preserved across JSR/JSL: the callee's own PHP/PLP is
+     # internal to its body. A well-balanced callee leaves the caller's
+     # PHP/PLP stack untouched.
+-    if mnem in ('JSR', 'JSL'):
++    if mnem in ('JSR', 'JSL') or is_return_trampoline:
+         # Source-authoritative inline-return-address ABI.  This direct JSR's
+         # callee consumes the frame as table data and never resumes lexical
+         # fall-through, so it is terminal regardless of whether the callee has
+@@ -1056,9 +1060,15 @@ def _labeled_successors(insn: Insn, key: DecodeKey, bank: int,
+         ret_m, ret_x = post_m, post_x
+         target_pc24: Optional[int] = None
+         if mnem == 'JSR' and insn.length == 3 and insn.mode != INDIR_X:
+-            target_pc24 = addr24(bank, insn.operand & 0xFFFF)
++            target_pc24 = getattr(
++                insn, 'long_call_trampoline_target', None)
++            if target_pc24 is None:
++                target_pc24 = addr24(bank, insn.operand & 0xFFFF)
+         elif mnem == 'JSL':
+             target_pc24 = insn.operand & 0xFFFFFF
++        elif is_return_trampoline:
++            target_pc24 = insn.operand & 0xFFFFFF
++            next_pc = int(insn.return_trampoline_pc) & 0xFFFF
+         # JSR/JSL to an INLINE-ARGUMENT routine: the callee reads its own
+         # return address off the stack, consumes the N bytes that follow
+         # the call as a parameter, and advances the stacked return address
+@@ -1172,6 +1182,83 @@ def _pea_ptrcall_return_pc(rom: Optional[bytes], bank: int, pc: int,
+     return (pea_operand + 1) & 0xFFFF
+ 
+ 
++def _rom_byte(rom: bytes, bank: int, pc: int) -> Optional[int]:
++    """Read one mapped program byte, returning None outside the ROM."""
++    try:
++        off = lorom_offset(bank, pc & 0xFFFF)
++    except AssertionError:
++        return None
++    return rom[off] if off < len(rom) else None
++
++
++def _mark_call_trampoline_setup(graph: 'FunctionDecodeGraph',
++                                bank: int, *pcs: int) -> bool:
++    """Mark already-decoded setup instructions as host-call bookkeeping.
++
++    Requiring every setup PC to already be in this graph prevents a function
++    whose entry happens to be a JML/JSR from borrowing unrelated bytes that
++    precede it in ROM and being misclassified as a trampoline.
++    """
++    marked = []
++    for pc in pcs:
++        matches = [di.insn for key, di in graph.insns.items()
++                   if key.pc == addr24(bank, pc & 0xFFFF)]
++        if not matches:
++            return False
++        marked.extend(matches)
++    for setup in marked:
++        setup.call_trampoline_setup = True
++    return True
++
++
++def _return_trampoline_pc(rom: bytes, bank: int, jml_pc: int) -> Optional[int]:
++    """Recognize ``PHK; PER return-1; JML target`` and return its resume PC."""
++    phk_pc = (jml_pc - 4) & 0xFFFF
++    per_pc = (jml_pc - 3) & 0xFFFF
++    if _rom_byte(rom, bank, phk_pc) != 0x4B:
++        return None
++    if _rom_byte(rom, bank, per_pc) != 0x62:
++        return None
++    lo = _rom_byte(rom, bank, per_pc + 1)
++    hi = _rom_byte(rom, bank, per_pc + 2)
++    if lo is None or hi is None:
++        return None
++    rel = lo | (hi << 8)
++    if rel & 0x8000:
++        rel -= 0x10000
++    return ((per_pc + 3 + rel) + 1) & 0xFFFF
++
++
++def _long_jsr_trampoline_target(rom: bytes, bank: int,
++                                jsr_target: int) -> Optional[int]:
++    """Recognize local veneers entered as ``PHK; JSR``.
++
++    A bare JML veneer lets the long target RTL directly.  A PEA/JML veneer
++    gives an RTS target a short return into a shared RTL instruction; in that
++    case the veneer itself remains the callee, but it must receive the outer
++    three-byte frame synthesized for the preceding PHK.
++    """
++    first = _rom_byte(rom, bank, jsr_target)
++    if first == 0x5C:
++        b0 = _rom_byte(rom, bank, jsr_target + 1)
++        b1 = _rom_byte(rom, bank, jsr_target + 2)
++        b2 = _rom_byte(rom, bank, jsr_target + 3)
++        if b0 is None or b1 is None or b2 is None:
++            return None
++        return b0 | (b1 << 8) | (b2 << 16)
++    if first != 0xF4 or _rom_byte(rom, bank, jsr_target + 3) != 0x5C:
++        return None
++    ret_lo = _rom_byte(rom, bank, jsr_target + 1)
++    ret_hi = _rom_byte(rom, bank, jsr_target + 2)
++    tgt_bank = _rom_byte(rom, bank, jsr_target + 6)
++    if ret_lo is None or ret_hi is None or tgt_bank is None:
++        return None
++    return_minus_one = ret_lo | (ret_hi << 8)
++    if _rom_byte(rom, tgt_bank, return_minus_one + 1) != 0x6B:
++        return None
++    return addr24(bank, jsr_target)
++
++
+ def _detect_inline_arg_bytes_stack_slot(rom: bytes, bank: int, addr: int,
+                                         entry_m: int = 1, entry_x: int = 1):
+     """Detect whether the subroutine at (bank, addr) is a JSR/JSL
+@@ -1958,6 +2045,27 @@ def _decode_function_uncached(rom: bytes, bank: int, start: int,
+         insn.x_flag = key.x
+         insn.data_region_exec = (
+             (key.pc & 0xFFFFFF) in graph.data_region_exec_pcs)
++
++        # Two instruction sequences implement a cross-bank call using
++        # explicit stack setup instead of JSL.  Preserve their call/return
++        # semantics rather than treating the JML as a tail transfer.
++        if (insn.mnem == 'JMP' and insn.mode == LONG
++                and pred_pc == ((pc - 3) & 0xFFFF)):
++            return_pc = _return_trampoline_pc(rom, bank, pc)
++            if (return_pc is not None
++                    and _mark_call_trampoline_setup(
++                        graph, bank, pc - 4, pc - 3)):
++                insn.return_trampoline = True
++                insn.return_trampoline_pc = return_pc
++        elif (insn.mnem == 'JSR' and insn.mode != INDIR_X
++              and insn.length == 3
++              and pred_pc == ((pc - 1) & 0xFFFF)
++              and _rom_byte(rom, bank, pc - 1) == 0x4B):
++            target = _long_jsr_trampoline_target(
++                rom, bank, insn.operand & 0xFFFF)
++            if (target is not None
++                    and _mark_call_trampoline_setup(graph, bank, pc - 1)):
++                insn.long_call_trampoline_target = target
+         if (terminal_jsr_sites
+                 and (insn.addr & 0xFFFFFF) in terminal_jsr_sites):
+             if not (insn.mnem == 'JSR' and insn.mode != INDIR_X
+@@ -2778,7 +2886,8 @@ def _direct_tail_exit_keys(graph: 'FunctionDecodeGraph',
+     if outside:
+         return outside
+     if (ins.mnem == 'JMP' and ins.length == 4
+-            and not getattr(ins, 'dispatch_entries', None)):
++            and not getattr(ins, 'dispatch_entries', None)
++            and not getattr(ins, 'return_trampoline', False)):
+         return [(ins.operand & 0xFFFFFF,
+                  ins.m_flag & 1, ins.x_flag & 1)]
+     return []
+@@ -2835,6 +2944,8 @@ def _return_stack_delta_states(
+ 
+     def local_delta(ins) -> Optional[int]:
+         mnem = ins.mnem
++        if getattr(ins, 'call_trampoline_setup', False):
++            return 0
+         consumed = int(getattr(ins, 'dispatch_consumed_stack_bytes', 0) or 0)
+         if consumed:
+             return -consumed
+diff --git a/recompiler/v2/emit_function.py b/recompiler/v2/emit_function.py
+index cb33963..599653e 100644
+--- a/recompiler/v2/emit_function.py
++++ b/recompiler/v2/emit_function.py
+@@ -1377,6 +1377,8 @@ def emit_function(rom: bytes, bank: int, start: int,
+         pairs = block_per_insn_ir.get(key, [])
+         skip_emit_idx = set()
+         for ji, (jdi, _jops) in enumerate(pairs):
++            if getattr(jdi, 'call_trampoline_setup', False):
++                skip_emit_idx.add(ji)
+             if (jdi.mnem == 'JMP' and jdi.length == 4
+                     and getattr(jdi, 'dispatch_entries', None)):
+                 k2 = ji - 1
+@@ -1498,7 +1500,7 @@ def emit_function(rom: bytes, bank: int, start: int,
+                 else:
+                     lines.append(
+                         f"/* trampoline setup {di_insn.mnem} skipped — "
+-                        f"inlined into synthesized dispatch below */"
++                        f"folded into synthesized call/dispatch below */"
+                     )
+                 continue
+             # Axis-2 step C dynamics: charge runtime-only modifiers (D.l != 0,
+@@ -1541,6 +1543,18 @@ def emit_function(rom: bytes, bank: int, start: int,
+                         for ln in _emit_dispatch(insn):
+                             lines.append(ln)
+                         block_terminated = True
++                    elif getattr(insn, 'return_trampoline', False):
++                        call = Call(
++                            target=insn.operand & 0xFFFFFF,
++                            long=True,
++                            entry_m=insn.m_flag & 1,
++                            entry_x=insn.x_flag & 1,
++                            source_pc24=insn.addr & 0xFFFFFF,
++                        )
++                        lines.append(
++                            "/* PHK;PER;JML return trampoline -> long call */")
++                        for ln in emit_op(call, getattr(insn, 'addr', None)):
++                            lines.append(ln)
+                     else:
+                         succs = block.successors
+                         blk_pc24 = (bank << 16) | (key.pc & 0xFFFF)
+@@ -1916,7 +1930,21 @@ def emit_function(rom: bytes, bank: int, start: int,
+                                 lines.append(ln)
+                             block_terminated = True
+                     else:
+-                        for ln in emit_op(op, getattr(di_insn, 'addr', None)):
++                        emitted_op = op
++                        veneer_target = getattr(
++                            insn, 'long_call_trampoline_target', None)
++                        if veneer_target is not None:
++                            emitted_op = Call(
++                                target=int(veneer_target) & 0xFFFFFF,
++                                long=True,
++                                entry_m=insn.m_flag & 1,
++                                entry_x=insn.x_flag & 1,
++                                source_pc24=insn.addr & 0xFFFFFF,
++                            )
++                            lines.append(
++                                "/* PHK;JSR long-call veneer -> long call */")
++                        for ln in emit_op(emitted_op,
++                                          getattr(di_insn, 'addr', None)):
+                             lines.append(ln)
+                         if op.terminal:
+                             block_terminated = True
+@@ -1962,7 +1990,9 @@ def emit_function(rom: bytes, bank: int, start: int,
+                 lines.append(_goto_or_return(succs[0], source_pc24=blk_pc24)
+                              + " /* implicit fall-through */")
+             elif (len(succs) > 1 and pairs
+-                  and pairs[-1][0].mnem in ('JSR', 'JSL')):
++                  and (pairs[-1][0].mnem in ('JSR', 'JSL')
++                       or getattr(pairs[-1][0],
++                                  'return_trampoline', False))):
+                 lines.append("switch (((cpu->m_flag & 1) << 1) | (cpu->x_flag & 1)) {")
+                 seen_mx = set()
+                 fallback_stmt = None
+diff --git a/recompiler/v2/program_analysis.py b/recompiler/v2/program_analysis.py
+index e789afc..1e83706 100644
+--- a/recompiler/v2/program_analysis.py
++++ b/recompiler/v2/program_analysis.py
+@@ -319,7 +319,18 @@ def summarize_decode_graph(
+         if entries:
+             continue
+ 
+-        if insn.mnem == "JSL":
++        long_veneer_target = getattr(
++            insn, "long_call_trampoline_target", None)
++        if long_veneer_target is not None:
++            target = VariantKey(
++                int(long_veneer_target), insn.m_flag, insn.x_flag)
++            resolution = (EdgeResolution.AOT_EXACT
++                          if target_is_code is None or target_is_code(target)
++                          else EdgeResolution.LLE_EXACT)
++            edges.add(DemandEdge(
++                site, EdgeKind.DIRECT_CALL, resolution, target,
++                detail="phk_jsr_jml_veneer"))
++        elif insn.mnem == "JSL":
+             target = VariantKey(insn.operand, insn.m_flag, insn.x_flag)
+             resolution = (EdgeResolution.AOT_EXACT
+                           if target_is_code is None or target_is_code(target)
+@@ -335,6 +346,15 @@ def summarize_decode_graph(
+                           else EdgeResolution.LLE_EXACT)
+             edges.add(DemandEdge(
+                 site, EdgeKind.DIRECT_CALL, resolution, target))
++        elif (insn.mnem == "JMP" and insn.length == 4
++              and getattr(insn, "return_trampoline", False)):
++            target = VariantKey(insn.operand, insn.m_flag, insn.x_flag)
++            resolution = (EdgeResolution.AOT_EXACT
++                          if target_is_code is None or target_is_code(target)
++                          else EdgeResolution.LLE_EXACT)
++            edges.add(DemandEdge(
++                site, EdgeKind.DIRECT_CALL, resolution, target,
++                detail="phk_per_jml_return"))
+         elif insn.mnem == "JMP" and insn.length == 4:
+             target = VariantKey(insn.operand, insn.m_flag, insn.x_flag)
+             resolution = (EdgeResolution.AOT_EXACT
+diff --git a/tests/v2/run_tests.py b/tests/v2/run_tests.py
+index 213443d..dabd45b 100644
+--- a/tests/v2/run_tests.py
++++ b/tests/v2/run_tests.py
+@@ -45,6 +45,7 @@ TEST_MODULES = [
+     'test_v2_emit_lint',
+     'test_nlr_idiom',
+     'test_dispatcher_phk_per_jml',
++    'test_direct_long_call_trampolines',
+     'test_indirect_dispatch_parallel_tables',
+     'test_pointer_target_dispatch',
+     'test_indirect_jsr_dispatch_continuation',
+diff --git a/tests/v2/test_direct_long_call_trampolines.py b/tests/v2/test_direct_long_call_trampolines.py
+new file mode 100644
+index 0000000..0e6ce76
+--- /dev/null
++++ b/tests/v2/test_direct_long_call_trampolines.py
+@@ -0,0 +1,131 @@
++"""Synthetic coverage for long-call trampoline instruction sequences."""
++
++from _helpers import make_lorom_bank0 as _unused_path_setup  # noqa: F401,E402
++
++from v2.decoder import decode_function, analyze_function_exit_mx  # noqa: E402
++from v2.emit_function import emit_function  # noqa: E402
++from v2.program_analysis import EdgeKind, summarize_decode_graph  # noqa: E402
++
++
++def _rom(blobs):
++    image = bytearray([0xEA] * 0x10000)
++    for pc24, data in blobs.items():
++        bank = (pc24 >> 16) & 0x7F
++        pc = pc24 & 0xFFFF
++        off = bank * 0x8000 + pc - 0x8000
++        image[off:off + len(data)] = data
++    return bytes(image)
++
++
++def test_phk_per_jml_is_a_returning_long_call():
++    rom = _rom({
++        0x008000: bytes([
++            0x08,                    # PHP
++            0xE2, 0x30,              # SEP #$30
++            0x4B,                    # PHK
++            0x62, 0x03, 0x00,        # PER return-1 ($800A)
++            0x5C, 0x00, 0x90, 0x01,  # JML $01:9000
++            0x28,                    # PLP (resume at $800B)
++            0x60,                    # RTS
++        ]),
++        0x019000: bytes([0x6B]),      # RTL
++    })
++    exits = {(0x019000, 1, 1): (1, 1)}
++    graph = decode_function(
++        rom, 0, 0x8000, 0, 1, end=0x800D,
++        callee_exit_mx=exits, stop_on_unknown_callee_exit=True)
++
++    jml = next(di.insn for di in graph.insns.values()
++               if di.insn.addr == 0x008007)
++    assert jml.return_trampoline
++    assert jml.return_trampoline_pc == 0x800B
++    assert analyze_function_exit_mx(graph) == (0, 1)
++
++    summary = summarize_decode_graph(graph)
++    target_edges = [edge for edge in summary.demands
++                    if edge.target and edge.target.pc24 == 0x019000]
++    assert [edge.kind for edge in target_edges] == [EdgeKind.DIRECT_CALL]
++
++    src = emit_function(
++        rom, 0, 0x8000, 0, 1, end=0x800D,
++        func_name="return_trampoline", callee_exit_mx=exits)
++    assert "PHK;PER;JML return trampoline -> long call" in src
++    assert "trampoline setup PHK skipped" in src
++    assert "trampoline setup PER skipped" in src
++    assert "cpu->host_return_valid = 3" in src
++    assert "cpu->PB = 0x01" in src
++
++
++def test_phk_jsr_jml_veneer_is_folded_to_direct_long_call():
++    rom = _rom({
++        0x008000: bytes([
++            0x4B,              # PHK
++            0x20, 0x00, 0x82,  # JSR $8200
++            0x60,              # RTS
++        ]),
++        0x008200: bytes([
++            0x5C, 0x00, 0x90, 0x01,  # JML $01:9000
++        ]),
++        0x019000: bytes([0x6B]),      # RTL
++    })
++    exits = {(0x019000, 1, 1): (1, 1)}
++    graph = decode_function(
++        rom, 0, 0x8000, 1, 1, end=0x8005,
++        callee_exit_mx=exits, stop_on_unknown_callee_exit=True)
++
++    jsr = next(di.insn for di in graph.insns.values()
++               if di.insn.addr == 0x008001)
++    assert jsr.long_call_trampoline_target == 0x019000
++    assert analyze_function_exit_mx(graph) == (1, 1)
++
++    summary = summarize_decode_graph(graph)
++    targets = {(edge.kind, edge.target.pc24) for edge in summary.demands
++               if edge.target is not None}
++    assert targets == {(EdgeKind.DIRECT_CALL, 0x019000)}
++
++    src = emit_function(
++        rom, 0, 0x8000, 1, 1, end=0x8005,
++        func_name="long_call_veneer", callee_exit_mx=exits)
++    assert "PHK;JSR long-call veneer -> long call" in src
++    assert "trampoline setup PHK skipped" in src
++    assert "cpu->host_return_valid = 3" in src
++    assert "bank_01_9000" in src
++    assert "bank_00_8200" not in src
++
++
++def test_phk_jsr_pea_jml_veneer_gets_a_long_outer_frame():
++    rom = _rom({
++        0x008000: bytes([
++            0x4B,              # PHK
++            0x20, 0x00, 0x82,  # JSR $8200
++            0x60,              # RTS
++        ]),
++        0x008200: bytes([
++            0xF4, 0xFB, 0x90,        # PEA $90FB (shared RTL - 1)
++            0x5C, 0x00, 0x91, 0x01,  # JML $01:9100 (RTS body)
++        ]),
++        0x0190FC: bytes([0x6B]),      # shared long return: RTL
++        0x019100: bytes([0x60]),      # short-return body: RTS
++    })
++    exits = {(0x008200, 1, 1): (1, 1)}
++    graph = decode_function(
++        rom, 0, 0x8000, 1, 1, end=0x8005,
++        callee_exit_mx=exits, stop_on_unknown_callee_exit=True)
++
++    jsr = next(di.insn for di in graph.insns.values()
++               if di.insn.addr == 0x008001)
++    assert jsr.long_call_trampoline_target == 0x008200
++    assert analyze_function_exit_mx(graph) == (1, 1)
++
++    summary = summarize_decode_graph(graph)
++    targets = {(edge.kind, edge.target.pc24) for edge in summary.demands
++               if edge.target is not None}
++    assert targets == {(EdgeKind.DIRECT_CALL, 0x008200)}
++
++    src = emit_function(
++        rom, 0, 0x8000, 1, 1, end=0x8005,
++        func_name="pea_long_call_veneer", callee_exit_mx=exits)
++    assert "PHK;JSR long-call veneer -> long call" in src
++    assert "trampoline setup PHK skipped" in src
++    assert "cpu->host_return_valid = 3" in src
++    assert "bank_00_8200" in src
+-- 
+2.54.0 (Apple Git-157)
+

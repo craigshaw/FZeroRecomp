@@ -1,0 +1,102 @@
+From 152c8d09fce00116412c9beceec1fe798e6268ba Mon Sep 17 00:00:00 2001
+From: Craig Shaw <craig@craigshaw.com>
+Date: Fri, 4 Sep 2026 17:06:31 +0100
+Subject: [PATCH 3/4] Prefer active interpreter ownership for mixed-tier
+ returns
+
+---
+ recompiler/v2/codegen.py                   | 13 ++++++++-----
+ recompiler/v2/emit_function.py             |  8 ++++----
+ tests/v2/test_hle_spc_upload_return_abi.py |  5 +++++
+ tests/v2/test_nlr_idiom.py                 |  5 +++++
+ 4 files changed, 22 insertions(+), 9 deletions(-)
+
+diff --git a/recompiler/v2/codegen.py b/recompiler/v2/codegen.py
+index b693746..20e4b01 100644
+--- a/recompiler/v2/codegen.py
++++ b/recompiler/v2/codegen.py
+@@ -2390,17 +2390,20 @@ def _emit_return(op: Return) -> List[str]:
+         # Intentionally not gated by cpu_dispatch_has_entry(): a popped PC can
+         # be both a valid continuation entry and a return-to-ancestor target.
+         "  if (_ret_s != _entry_s) {",
+-        "    int _anc_skip = cpu_resolve_ancestor_skip(_ret_s);",
+-        "    if (_anc_skip >= 0) {",
+-        "      cpu_trace_mark_nlr_exit(BD_EXIT_KIND_TRAMPOLINE);",
+-        f"      return (RecompReturn)_anc_skip;  /* {label_inner} return-to-ancestor */ }}",
+         # The nearest skipped ancestor can be a caller still running inside
+         # the active interpreter rather than another generated function. Hand
+         # the popped continuation back to that owner through the existing
+-        # arbitrary-depth LLE unwind sentinel.
++        # arbitrary-depth LLE unwind sentinel. Test interpreter ownership
++        # before the generated-ancestor table: a mixed-tier continuation can
++        # share the same guest-stack watermark as a generated ancestor, but
++        # the active bridge owns the architectural continuation.
+         "    if (interp_bridge_return_targets_owner(_ret_s, cpu->S)) {",
+         "      cpu_trace_mark_nlr_exit(BD_EXIT_KIND_TRAMPOLINE);",
+         f"      return interp_bridge_lle_yield_unwind(cpu, _rpc24);  /* {label_inner} return-to-interpreter-owner */ }}",
++        "    int _anc_skip = cpu_resolve_ancestor_skip(_ret_s);",
++        "    if (_anc_skip >= 0) {",
++        "      cpu_trace_mark_nlr_exit(BD_EXIT_KIND_TRAMPOLINE);",
++        f"      return (RecompReturn)_anc_skip;  /* {label_inner} return-to-ancestor */ }}",
+         # A skipped ancestor may be part of the active interpreter rather than
+         # g_recomp_stack. Return the real popped continuation to that owning
+         # bridge instead of creating a new dispatch root and then resuming code
+diff --git a/recompiler/v2/emit_function.py b/recompiler/v2/emit_function.py
+index 599653e..c75fb17 100644
+--- a/recompiler/v2/emit_function.py
++++ b/recompiler/v2/emit_function.py
+@@ -550,15 +550,15 @@ def emit_function(rom: bytes, bank: int, start: int,
+             "      RecompStackPop();",
+             "      return RECOMP_RETURN_NORMAL;  /* HLE RTS host return */ }",
+             "    if (_ret_s != _entry_s && !cpu_dispatch_has_entry(cpu, _rpc24)) {",
++            "      if (interp_bridge_return_targets_owner(_ret_s, cpu->S)) {",
++            "        cpu_trace_mark_nlr_exit(BD_EXIT_KIND_TRAMPOLINE);",
++            "        RecompStackPop();",
++            "        return interp_bridge_lle_yield_unwind(cpu, _rpc24);  /* HLE RTS return-to-interpreter-owner */ }",
+             "      int _anc_skip = cpu_resolve_ancestor_skip(_ret_s);",
+             "      if (_anc_skip >= 0) {",
+             "        cpu_trace_mark_nlr_exit(BD_EXIT_KIND_TRAMPOLINE);",
+             "        RecompStackPop();",
+             "        return (RecompReturn)_anc_skip;  /* HLE RTS return-to-ancestor */ }",
+-            "      if (interp_bridge_return_targets_owner(_ret_s, cpu->S)) {",
+-            "        cpu_trace_mark_nlr_exit(BD_EXIT_KIND_TRAMPOLINE);",
+-            "        RecompStackPop();",
+-            "        return interp_bridge_lle_yield_unwind(cpu, _rpc24);  /* HLE RTS return-to-interpreter-owner */ }",
+             "    }",
+             "    cpu_trace_mark_nlr_exit(BD_EXIT_KIND_TRAMPOLINE);",
+             "    RecompStackPop();",
+diff --git a/tests/v2/test_hle_spc_upload_return_abi.py b/tests/v2/test_hle_spc_upload_return_abi.py
+index a47bb55..6740793 100644
+--- a/tests/v2/test_hle_spc_upload_return_abi.py
++++ b/tests/v2/test_hle_spc_upload_return_abi.py
+@@ -26,6 +26,11 @@ def test_hle_spc_upload_emits_rts_frame_pop_before_normal_return():
+     assert 'dbg_rts_trace(cpu, 0x008059u, _entry_s, _ret_s, _rpc24, (uint8)_hrv);' in src, src
+     assert 'return RECOMP_RETURN_NORMAL;  /* HLE RTS host return */' in src, src
+     assert 'cpu_dispatch_pc_from(cpu, _rpc24, (uint16)(_entry_s + 2u), 0x008059u)' in src, src
++    assert src.index(
++        'interp_bridge_return_targets_owner(_ret_s, cpu->S)') < src.index(
++        'cpu_resolve_ancestor_skip(_ret_s)'), (
++            'the active interpreter must own a mixed-tier HLE continuation '
++            'before generated ancestor resolution')
+ 
+     assert src.index('HLE SPC upload RTS pop hardware return frame') < src.index(
+         'return RECOMP_RETURN_NORMAL;  /* HLE RTS host return */')
+diff --git a/tests/v2/test_nlr_idiom.py b/tests/v2/test_nlr_idiom.py
+index 3791129..4f1c895 100644
+--- a/tests/v2/test_nlr_idiom.py
++++ b/tests/v2/test_nlr_idiom.py
+@@ -28,6 +28,11 @@ def test_single_block_pla_pla_rts_uses_hardware_stack_unwind():
+     assert "interp_bridge_lle_yield_unwind(cpu, _rpc24)" in src
+     assert "return-to-interpreter-owner" in src
+     assert "RTS return-to-ancestor" in src
++    assert (src.index("interp_bridge_return_targets_owner(_ret_s, cpu->S)") <
++            src.index("cpu_resolve_ancestor_skip(_ret_s)")), (
++        "an active interpreter owns a mixed-tier continuation even when its "
++        "guest stack watermark also resembles a generated ancestor"
++    )
+     assert "interp_bridge_has_direct_paired_bounce" in src
+     assert "interp_tier_dispatch_rewritten_return" in src
+     assert "RECOMP_RETURN_SKIP_1" not in src
+-- 
+2.50.1 (Apple Git-155)
+

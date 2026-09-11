@@ -1,0 +1,256 @@
+From dc5ee0672f98a22d2cb75773fd655f345ce10d85 Mon Sep 17 00:00:00 2001
+From: Craig Shaw <craig@craigshaw.com>
+Date: Fri, 4 Sep 2026 17:06:24 +0100
+Subject: [PATCH 2/4] Fix open-bus polling and quiescent resume
+
+---
+ runner/src/common_rtl.c                      |  9 +++--
+ runner/src/snes/interp_bridge.c              | 38 ++++++++++++++++++--
+ runner/src/snes/snes_regs.h                  | 17 ++++++---
+ tests/interp816/bridge_test.c                | 18 ++++++++++
+ tests/run_c_tests.sh                         | 20 +++++++----
+ tests/runtime_dispatch/rdnmi_open_bus_test.c | 23 ++++++++++++
+ 6 files changed, 110 insertions(+), 15 deletions(-)
+ create mode 100644 tests/runtime_dispatch/rdnmi_open_bus_test.c
+
+diff --git a/runner/src/common_rtl.c b/runner/src/common_rtl.c
+index 0f61c45..48a0fbe 100644
+--- a/runner/src/common_rtl.c
++++ b/runner/src/common_rtl.c
+@@ -880,7 +880,7 @@ uint8 ReadRegOpenBus(uint16 reg, uint8 open_bus) {
+     return snes_read(g_snes, reg);
+   } else if (reg == 0x2180) {
+     return snes_readBBus(g_snes, reg & 0xff);
+-  } else if (reg == 0x4016 || reg == 0x4017) {
++  } else if (reg == 0x4016 || reg == 0x4017) {
+     /* JOYSER0 / JOYSER1 — manual joypad-read serial registers.
+      * Routed through snes_readReg so the SNES core can return the
+      * controller-presence signature (bit 0 set after the implicit
+@@ -889,8 +889,11 @@ uint8 ReadRegOpenBus(uint16 reg, uint8 open_bus) {
+      * default `return 0` and breaking SMW's CheckWhichControllers-
+      * ArePluggedIn detection. */
+     return snes_readReg(g_snes, reg);
+-  } else if (reg >= 0x4200 && reg < 0x4220) {
+-    return recomp_read_internal_reg(reg);
++  } else if (reg >= 0x4200 && reg < 0x4220) {
++    uint8 value = recomp_read_internal_reg(reg);
++    if (reg == RDNMI)
++      value = snes_rdnmi_merge_open_bus(value, open_bus);
++    return value;
+   } else if (reg >= 0x4300 && reg < 0x4380) {
+     return dma_read(g_dma, reg);
+   }
+diff --git a/runner/src/snes/interp_bridge.c b/runner/src/snes/interp_bridge.c
+index ee79909..c648f06 100644
+--- a/runner/src/snes/interp_bridge.c
++++ b/runner/src/snes/interp_bridge.c
+@@ -836,7 +836,14 @@ static int _interp_run_core(CpuState *cpu, uint32_t entry_pc24,
+         if (auto_quiescent) {
+             QuiescentState now;
+             memset(&now, 0, sizeof now);
+-            now.pc=pc_before; now.a=in.a; now.x=in.x; now.y=in.y;
++            /* The captured architectural state is AFTER the instruction just
++             * executed, so its matching PC is the interpreter's next PC, not
++             * pc_before. This matters for a two-instruction hardware poll:
++             * after the taken branch the CPU is parked on the register read.
++             * Resuming at the branch would skip that read after NMI/IRQ and
++             * stack the wrong interrupted PC. */
++            now.pc=((uint32_t)in.k << 16) | in.pc;
++            now.a=in.a; now.x=in.x; now.y=in.y;
+             now.sp=in.sp; now.dp=in.dp; now.db=in.db; now.k=in.k;
+             now.c=in.c; now.z=in.z; now.v=in.v; now.n=in.n; now.i=in.i;
+             now.d=in.d; now.mf=in.mf; now.xf=in.xf; now.e=in.e;
+@@ -864,7 +871,34 @@ static int _interp_run_core(CpuState *cpu, uint32_t entry_pc24,
+                          * and could starve rendering.  Live MMIO polls are not
+                          * mistaken for this path: continuous_read_epoch changes
+                          * on every such read. */
+-                        s_lle_resume_pc24=pc_before;
++                        /* Resume at the head of the observed cycle. Depending
++                         * on which state repeats first, detection lands either
++                         * on the register read itself or on its taken backward
++                         * branch. Re-execute the read in both cases so the
++                         * asynchronous device value refreshes A/P. */
++                        uint8_t qop, qrel;
++                        /* Peek through the interpreter bus, then restore the
++                         * CPU data latch so inspection itself is
++                         * architecturally invisible. Executable RAM and test
++                         * fixtures work without a separate ROM mapping. */
++                        const uint8_t saved_open_bus = cpu->open_bus;
++                        qop = in.read(in.mem, pc_before);
++                        qrel = in.read(in.mem,
++                            (pc_before & 0xFF0000u) |
++                            (uint16_t)((uint16_t)pc_before + 1u));
++                        cpu->open_bus = saved_open_bus;
++                        const int branch_op =
++                            qop == 0x10 || qop == 0x30 || qop == 0x50 ||
++                            qop == 0x70 || qop == 0x80 || qop == 0x90 ||
++                            qop == 0xB0 || qop == 0xD0 || qop == 0xF0;
++                        if (branch_op && (int8_t)qrel < 0) {
++                            const uint16_t target = (uint16_t)(
++                                (uint16_t)pc_before + 2u + (int8_t)qrel);
++                            s_lle_resume_pc24 =
++                                (pc_before & 0xFF0000u) | target;
++                        } else {
++                            s_lle_resume_pc24 = pc_before;
++                        }
+                         sync_interp_to_cpu(&in,cpu);
+                         bridge_apu_flush(cpu);
+                         return 1;
+diff --git a/runner/src/snes/snes_regs.h b/runner/src/snes/snes_regs.h
+index 86788e9..f782536 100644
+--- a/runner/src/snes/snes_regs.h
++++ b/runner/src/snes/snes_regs.h
+@@ -1,8 +1,17 @@
+ #ifndef SNES_SNES_REGS_H_
+ #define SNES_SNES_REGS_H_
+-#pragma once
+-
+-typedef enum SnesRegs {
++#pragma once
++
++/* RDNMI ($4210) drives bit 7 and the four CPU-version bits. Bits 4-6 are
++ * undriven and retain the CPU data-bus value. Keep this tiny helper beside the
++ * register definition so both the runtime and ROM-free regression tests use
++ * the same mask. */
++static inline unsigned char snes_rdnmi_merge_open_bus(
++    unsigned char driven, unsigned char open_bus) {
++  return (unsigned char)((driven & 0x8f) | (open_bus & 0x70));
++}
++
++typedef enum SnesRegs {
+   INIDISP = 0x2100,
+   OBSEL = 0x2101,
+   OAMADDL = 0x2102,
+@@ -216,4 +225,4 @@ typedef enum SnesRegs {
+   MIRR7 = 0x437F,
+ } SnesRegs;
+ 
+-#endif  // SNES_SNES_REGS_H_
+\ No newline at end of file
++#endif  // SNES_SNES_REGS_H_
+diff --git a/tests/interp816/bridge_test.c b/tests/interp816/bridge_test.c
+index 9f00f21..1c2b100 100644
+--- a/tests/interp816/bridge_test.c
++++ b/tests/interp816/bridge_test.c
+@@ -724,6 +724,24 @@ int main(void) {
+       CHECK(rc2 == 1, "second rc=%d exp 1 (input observed)", rc2);
+       CHECK(g_c.S == 0x01FF, "return S=%04X exp 01FF (balanced)", g_c.S); }
+ 
++    /* S10b: auto-quiescent state is sampled after each opcode. A stable
++     * read/branch loop must resume at the next architectural PC (the read),
++     * not at the branch opcode that just executed. Otherwise an interrupt
++     * wakes the loop without re-reading the newly changed hardware value. */
++    { memset(RAM, 0, MEMSZ); init_cpu();
++      uint8_t c[] = {
++          0xAD,0x20,0x00,                    /* LDA $20 */
++          0xF0,0xFB                         /* BEQ $8000 */
++      };
++      load(0x8000, c, sizeof c);
++      RAM[0x20] = 0;
++      int rc = interp_bridge_run_until_quiescent(&g_c, 0x008000);
++      printf("S10b auto-quiescent resumes at post-branch PC\n");
++      CHECK(rc == 1, "rc=%d exp 1", rc);
++      CHECK(interp_bridge_lle_resume_pc() == 0x008000,
++            "resume=$%06X exp $008000 (re-read wait source)",
++            (unsigned)interp_bridge_lle_resume_pc()); }
++
+     /* S11: a dispatch-table row with no exact AOT M/X body is a known LLE
+      * entry, not a mid-caller continuation.  cpu_dispatch_pc_from invokes
+      * this bridge after the prior RTS already popped, so the current S is the
+diff --git a/tests/run_c_tests.sh b/tests/run_c_tests.sh
+index 8afbd3b..af73c2c 100644
+--- a/tests/run_c_tests.sh
++++ b/tests/run_c_tests.sh
+@@ -7,9 +7,11 @@ OUT="$ROOT/build/c-tests"
+ CC="${CC:-gcc}"
+ mkdir -p "$OUT"
+ 
+-LAUNCHER_LIBS=()
++LAUNCHER_LIBS=""
++GC_SECTIONS_LINKER="-Wl,--gc-sections"
+ case "$(uname -s)" in
+-    MINGW*|MSYS*) LAUNCHER_LIBS=(-lcomdlg32) ;;
++    Darwin) GC_SECTIONS_LINKER="-Wl,-dead_strip" ;;
++    MINGW*|MSYS*) LAUNCHER_LIBS="-lcomdlg32" ;;
+ esac
+ 
+ echo "=== launcher ==="
+@@ -23,7 +25,7 @@ echo "=== launcher ==="
+     "$ROOT/runner/src/host_paths.c" \
+     "$ROOT/runner/src/crc32.c" \
+     "$ROOT/runner/src/sha256.c" \
+-    "${LAUNCHER_LIBS[@]}" \
++    $LAUNCHER_LIBS \
+     -o "$OUT/launcher_test"
+ "$OUT/launcher_test"
+ 
+@@ -55,7 +57,7 @@ echo "=== DMA / HDMA ==="
+     "$ROOT/tests/dma/hdma_timing_test.c" \
+     "$ROOT/runner/src/snes/dma.c" \
+     "$ROOT/runner/src/snes/snes.c" \
+-    -Wl,--gc-sections -o "$OUT/hdma_timing_test"
++    $GC_SECTIONS_LINKER -o "$OUT/hdma_timing_test"
+ "$OUT/hdma_timing_test"
+ 
+ echo "=== interpreter and bridge ==="
+@@ -159,6 +161,12 @@ echo "=== automatic joypad register byte order ==="
+ "$OUT/auto_joypad_test"
+ 
+ echo "=== runtime dispatch ==="
++"$CC" -std=c11 -Wall -Wextra -Werror -O1 \
++    -I "$ROOT/runner/src/snes" \
++    "$ROOT/tests/runtime_dispatch/rdnmi_open_bus_test.c" \
++    -o "$OUT/rdnmi_open_bus_test"
++"$OUT/rdnmi_open_bus_test"
++
+ "$CC" -std=c11 -Wall -Wextra -ffunction-sections -fdata-sections \
+     -I "$ROOT/runner/src" -I "$ROOT/runner/src/snes" \
+     "$ROOT/tests/runtime_dispatch/known_lle_entry_test.c" \
+@@ -169,7 +177,7 @@ echo "=== runtime dispatch ==="
+     "$ROOT/runner/src/snes/dsp1_hle.c" \
+     "$ROOT/runner/src/snes/sa1.c" \
+     "$ROOT/runner/src/snes/interp816.c" \
+-    -Wl,--gc-sections -lm -o "$OUT/known_lle_entry_test"
++    $GC_SECTIONS_LINKER -lm -o "$OUT/known_lle_entry_test"
+ "$OUT/known_lle_entry_test"
+ 
+ echo "=== APU guest-time pacing ==="
+@@ -181,5 +189,5 @@ echo "=== APU guest-time pacing ==="
+     "$ROOT/runner/src/snes/apu.c" \
+     "$ROOT/runner/src/snes/spc.c" \
+     "$ROOT/runner/src/snes/dsp.c" \
+-    -Wl,--gc-sections -o "$OUT/apu_port_guest_time_test"
++    $GC_SECTIONS_LINKER -o "$OUT/apu_port_guest_time_test"
+ "$OUT/apu_port_guest_time_test"
+diff --git a/tests/runtime_dispatch/rdnmi_open_bus_test.c b/tests/runtime_dispatch/rdnmi_open_bus_test.c
+new file mode 100644
+index 0000000..7501713
+--- /dev/null
++++ b/tests/runtime_dispatch/rdnmi_open_bus_test.c
+@@ -0,0 +1,23 @@
++#include <stdio.h>
++
++#include "snes_regs.h"
++
++static int check(int condition, const char *message) {
++  if (condition)
++    return 0;
++  fprintf(stderr, "FAIL: %s\n", message);
++  return 1;
++}
++
++int main(void) {
++  int failures = 0;
++  failures += check(snes_rdnmi_merge_open_bus(0x02, 0x40) == 0x42,
++                    "RDNMI preserves open-bus bit 6");
++  failures += check(snes_rdnmi_merge_open_bus(0x82, 0x70) == 0xf2,
++                    "RDNMI combines NMI, version and open-bus bits");
++  failures += check(snes_rdnmi_merge_open_bus(0xff, 0x00) == 0x8f,
++                    "RDNMI never leaks driven bits 4-6");
++  if (!failures)
++    puts("rdnmi_open_bus_test: ok");
++  return failures != 0;
++}
+-- 
+2.50.1 (Apple Git-155)
+
