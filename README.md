@@ -42,10 +42,32 @@ The launcher also accepts the same payload with a 512-byte copier header.
 
 ## Download and install
 
-The [latest release](https://github.com/craigshaw/FZeroRecomp/releases/latest)
-includes a Mac app for **Apple Silicon (M1 or newer), macOS 13 or newer**.
-SDL is bundled; no Homebrew, compiler, or code generation is needed.
-Intel Macs are not supported by this download. Windows downloads will follow.
+The [0.1.0 release](https://github.com/craigshaw/FZeroRecomp/releases/tag/v0.1.0)
+includes these downloads. Both bundle SDL; no compiler or code generation is
+needed to play. You supply your own F-Zero (USA) ROM.
+
+| Platform | Download | Requirements |
+| --- | --- | --- |
+| Windows | [Windows x64 ZIP](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.1.0/FZeroRecomp-v0.1.0-Windows-x64.zip) | Windows 10/11 x64; Direct3D 12 with Shader Model 6.0 for visual filters |
+| macOS | [Apple Silicon ZIP](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.1.0/FZeroRecomp-v0.1.0-macOS-arm64.zip) | Apple Silicon (M1 or newer), macOS 13 or newer; Intel Macs are not supported |
+
+### Windows
+
+1. Download the Windows x64 ZIP and extract the entire archive to a writable
+   folder, such as a folder under your user account. Do not run it inside the ZIP.
+2. Open `fzero_recomp.exe`, select your F-Zero (USA) ROM, and press **Play**.
+3. Press **F1** in game to change widescreen, visual style, audio, and input settings.
+
+Keep the executable, DLLs, and `assets/` folder together. SDL and the Visual C++
+runtime are included; no separate runtime installation is needed. If the GPU
+cannot run the filters, the game uses Original colours and still supports widescreen.
+
+Settings and saves live beside the executable: `config.ini`, `keybinds.ini`,
+`rom.cfg`, and `saves/save.srm`. Keep that folder writable. To update, quit the
+game, back up these files, and replace the program files with the new download
+while preserving your settings and `saves/` folder.
+
+### macOS
 
 1. Download `FZeroRecomp-v0.1.0-macOS-arm64.zip` from the release's **Assets**.
 2. Extract the ZIP and drag **F-Zero Recomp.app** into **Applications**.
