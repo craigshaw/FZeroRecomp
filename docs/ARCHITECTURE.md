@@ -84,7 +84,9 @@ is covered by [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Opening settings pauses simulation and audio. Menu input is withheld from the
 game; held navigation buttons are suppressed until released. The launcher and
-runtime menu share executable-relative settings. Save migration copies a legacy
+runtime menu share settings. Source builds use executable-relative storage;
+the packaged Mac app uses `~/Library/Application Support/FZeroRecomp/` and
+loads assets from its bundle. Save migration in source builds copies a legacy
 save only when the destination is absent and retains the original.
 
 ## Diagnostics

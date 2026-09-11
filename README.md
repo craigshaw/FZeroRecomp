@@ -2,7 +2,8 @@
 
 A native, widescreen, static recompilation of F-Zero (USA).
 
-You supply your own cartridge dump; ROMs and generated game code are not included.
+You supply your own cartridge dump. No ROM is included; generated C is not
+part of the source repository.
 
 <p align="center">
   <a href="assets/screenshots/title-screen.jpg"><img src="assets/screenshots/title-screen.jpg" width="32%" alt="F-Zero title screen in widescreen"></a>
@@ -38,7 +39,28 @@ Use a **headerless F-Zero (USA)** cartridge dump for code generation:
 
 The launcher also accepts the same payload with a 512-byte copier header.
 
-## Build and run
+## Download and install
+
+The [latest release](https://github.com/craigshaw/FZeroRecomp/releases/latest)
+includes a Mac app for **Apple Silicon (M1 or newer), macOS 13 or newer**.
+SDL is bundled; no Homebrew, compiler, or code generation is needed.
+Intel Macs are not supported by this download. Windows downloads will follow.
+
+1. Download `FZeroRecomp-v0.1.0-macOS-arm64.zip` from the release's **Assets**.
+2. Extract the ZIP and drag **F-Zero Recomp.app** into **Applications**.
+3. Open the app, select your F-Zero (USA) ROM, and press **Play**.
+
+The app is not signed with an Apple Developer ID or notarised. If macOS blocks
+it, attempt to open it once, then go to **System Settings > Privacy & Security >
+Open Anyway**. See [Apple's instructions](https://support.apple.com/en-gb/102445).
+
+Saves and settings are stored in `~/Library/Application Support/FZeroRecomp/`.
+To update, quit the app and replace it with the new download. Keep that data
+folder to preserve your saves. To bring a save from a source build, quit both
+copies and copy `build/saves/save.srm` to `saves/save.srm` in that folder;
+back up an existing save before replacing it.
+
+## Build from source
 
 Requirements: Git, Python 3.11+, CMake 3.20+, Ninja, C11/C++17 compilers, SDL3
 development files, and OpenGL development files. On macOS, Apple's Command Line
@@ -96,7 +118,8 @@ F1 or gamepad Select+Start opens settings and pauses gameplay and audio.
 **Display** contains Widescreen, Visual Style, and FPS Readout. The launcher's
 generic save-state, rewind, and reset shortcuts are not connected to this host.
 
-Keep the executable and its `assets/` folder together in a writable directory.
+For source builds, keep the executable and its `assets/` folder together in a
+writable directory.
 Settings live beside the executable: `config.ini`, `keybinds.ini`, and `rom.cfg`.
 SRAM is saved to `saves/save.srm` on normal exit. Close the game before renaming
 a settings file to restore its defaults; leave the save file in place.
@@ -108,6 +131,11 @@ SDL3, install its development files and set `SDL3_DIR` to the folder containing
 ## Development
 
 See [architecture](docs/ARCHITECTURE.md) and [dependency patches](docs/SNESRECOMP_PATCHES.md).
+After generation, maintainers can build the Mac release with
+`python3 tools/package_macos.py --version 0.1.0`. This downloads and verifies
+SDL source, builds it for macOS 13, runs CTest, and writes the app, ZIP, and
+checksum under `build-release/`.
+
 Report bugs with the platform, build revision, settings, and reproduction steps.
 Do not attach ROMs or generated game code.
 

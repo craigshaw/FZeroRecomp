@@ -35,6 +35,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#ifdef FZERO_MACOS_APP
+#include <unistd.h>
+#endif
 
 #include "snes/snes.h"
 #include "snes/ppu.h"
@@ -351,6 +354,17 @@ int main(int argc, char **argv) {
   }
 
 #if defined(RECOMP_LAUNCHER)
+#ifdef FZERO_MACOS_APP
+  /* Keep user data outside the installed app so updates preserve it. SDL
+   * resolves launcher and runtime fonts from Contents/Resources separately. */
+  char *data_dir = SDL_GetPrefPath("", "FZeroRecomp");
+  if (!data_dir || chdir(data_dir) != 0) {
+    fprintf(stderr, "Cannot open the FZeroRecomp application support directory\n");
+    SDL_free(data_dir);
+    return 1;
+  }
+  SDL_free(data_dir);
+#else
   /* Anchor cwd to the exe dir so rom.cfg, config.ini, keybinds.ini, saves/
    * and assets/ resolve beside the executable regardless of launch context. */
   char legacy_save[1024];
@@ -360,6 +374,7 @@ int main(int argc, char **argv) {
   if (have_legacy_save) FZeroMigrateLegacySave(legacy_save);
   if (snesrecomp_exe_dir_path("../saves/save.srm", legacy_save, sizeof(legacy_save)))
     FZeroMigrateLegacySave(legacy_save);
+#endif
 
   /* Persisted launcher settings (config.ini [Settings]); missing file keeps
    * the defaults above. Seed keybinds.ini with the host layout on first run
@@ -490,6 +505,14 @@ int main(int argc, char **argv) {
   }
 #endif
 
+#ifdef FZERO_MACOS_APP
+  /* The shared resolver's cache is executable-relative. Supply our per-user
+   * cache explicitly when bypassing the launcher. */
+  if (!rom_resolved && !resolver_rom &&
+      ReadCachedRomPath(resolver_arg, sizeof(resolver_arg)) &&
+      snesrecomp_rom_verify_sha256(resolver_arg, expected_sha256))
+    resolver_rom = resolver_arg;
+#endif
   if (!rom_resolved && headless && !resolver_rom) {
     if (!ReadCachedRomPath(rom_path, sizeof(rom_path))) {
       fprintf(stderr, "No ROM supplied or cached for the bounded run\n");
@@ -512,6 +535,13 @@ int main(int argc, char **argv) {
     fprintf(stderr, "ROM verification failed: %s\n", rom_path);
     return 1;
   }
+#ifdef FZERO_MACOS_APP
+  FILE *cached_rom = fopen("rom.cfg", "w");
+  if (cached_rom) {
+    fprintf(cached_rom, "%s\n", rom_path);
+    fclose(cached_rom);
+  }
+#endif
   long rom_size = 0;
   uint8_t *rom = ReadWholeFile(rom_path, &rom_size);
   if (!rom) {

@@ -52,7 +52,7 @@ checkout. Recovery mode leaves local changes; use the integrated pin normally.
    cargo test --manifest-path recompiler-rs/Cargo.toml
    ```
 
-3. Follow the [build instructions](../README.md#build-and-run) to regenerate and
+3. Follow the [build instructions](../README.md#build-from-source) to regenerate and
    rebuild the game. Run CTest and exercise the affected route. Verify recovery,
    repeated application, and dirty-checkout refusal.
 4. Publish the integration before updating the parent pin. Update the recovery

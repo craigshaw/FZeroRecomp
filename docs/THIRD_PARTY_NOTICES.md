@@ -8,6 +8,10 @@ own terms: [snesrecomp](../snesrecomp/LICENSE), its
 [recomp-ui](../recomp-ui/LICENSE), and
 [Dear ImGui](../recomp-ui/src/third_party/imgui/LICENSE.txt).
 
+Release packages also include SDL3, tinyfiledialogs, stb_image, and their
+licence texts. Bundled launcher fonts retain their separate terms in
+[font notices](../assets/licenses/fonts.txt).
+
 The MIT License (MIT)
 
 Copyright (c) 2014-2025 Omar Cornut
