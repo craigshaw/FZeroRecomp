@@ -7,7 +7,7 @@ part of the source repository.
 
 <p align="center">
   <a href="assets/screenshots/title-screen.jpg"><img src="assets/screenshots/title-screen.jpg" width="32%" alt="F-Zero title screen in widescreen"></a>
-  <a href="assets/screenshots/mute-city-i-start.jpg"><img src="assets/screenshots/mute-city-i-start.jpg" width="32%" alt="The opening moments of a race on Mute City I"></a>
+  <a href="assets/screenshots/mute-city-i-start.png"><img src="assets/screenshots/mute-city-i-start.png" width="32%" alt="The opening moments of a race on Mute City I"></a>
   <a href="assets/screenshots/mute-city-ii-start.jpg"><img src="assets/screenshots/mute-city-ii-start.jpg" width="32%" alt="The opening moments of a race on Mute City II"></a>
 </p>
 
