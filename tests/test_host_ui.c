@@ -87,6 +87,14 @@ static int Button(FZeroRuntimeUi *rt, int button, int down) {
   e.gbutton.button = (Uint8)button;
   return FZeroRuntimeUiHandleEvent(rt, &e);
 }
+/* Unlike the game loop, these tests do not poll events each frame. Settle
+ * native window changes and let the GPU swapchain catch up before readback. */
+static void SettleWindow(SDL_Window *window, SDL_Renderer *renderer) {
+  CHECK(SDL_SyncWindow(window));
+  SDL_PumpEvents();
+  CHECK(SDL_RenderPresent(renderer));
+}
+
 static void TestMenu(void) {
   Write("config.ini", "[KeyMap]\nDisplayPerf = F\n");
   FZeroSettings s; FZeroSettingsInitDefault(&s);
@@ -95,6 +103,7 @@ static void TestMenu(void) {
   /* Exercise the same renderer selection as the game, including GPU runs. */
   FZeroPresentation *presentation = FZeroPresentationCreate(window, false); CHECK(presentation);
   SDL_Renderer *renderer = FZeroPresentationRenderer(presentation); CHECK(renderer);
+  SettleWindow(window, renderer);
   SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
       SDL_TEXTUREACCESS_STREAMING, 256, 224); CHECK(texture);
   FZeroRuntimeUi *rt = FZeroRuntimeUiCreate(&s, window, renderer, texture, NULL); CHECK(rt);
@@ -174,10 +183,12 @@ static void TestMenu(void) {
   int wide_w,wide_h; SDL_RendererLogicalPresentation wide_mode;
   CHECK(SDL_GetRenderLogicalPresentation(renderer,&wide_w,&wide_h,&wide_mode));
   CHECK(wide_w==FZERO_WIDE_WIDTH && wide_h==224);
+  SettleWindow(window, renderer);
   fzero_imgui_render_overlay(ig, rt, renderer, 1, 60.0);
   CHECK(SDL_GetRenderLogicalPresentation(renderer,&wide_w,&wide_h,&wide_mode));
   CHECK(wide_w==FZERO_WIDE_WIDTH && !SDL_RenderViewportSet(renderer));
   Key(rt, SDL_SCANCODE_LEFT, 1); CHECK(!s.widescreen);
+  SettleWindow(window, renderer);
   FZeroSettingsLoad("config.ini", &saved); CHECK(!saved.widescreen);
   CHECK(SDL_GetRenderLogicalPresentation(renderer,&wide_w,&wide_h,&wide_mode)); CHECK(wide_w==256);
   Key(rt, SDL_SCANCODE_F1, 1); CHECK(!FZeroRuntimeUiIsOpen(rt));
@@ -224,6 +235,7 @@ static void TestPresentation(void) {
   FZeroPresentation *video = FZeroPresentationCreate(window, false); CHECK(video);
   if (getenv("FZERO_TEST_GPU")) CHECK(FZeroPresentationHasShader(video));
   SDL_Renderer *renderer = FZeroPresentationRenderer(video);
+  SettleWindow(window, renderer);
   SDL_Texture *texture = FZeroPresentationTexture(video);
   static Uint32 world[224][256], hud[224][256], expected[224][256];
   for (int y = 0; y < 224; ++y) for (int x = 0; x < 256; ++x) {
@@ -244,11 +256,7 @@ static void TestPresentation(void) {
   for (int i = 0; i < 4; ++i) {
     if (i == 2) {
       CHECK(SDL_SetWindowSize(window, 1001, 733));
-      CHECK(SDL_SyncWindow(window));
-      SDL_PumpEvents();
-      /* GPU backbuffers follow swapchain size at present. Read back only
-       * after that transition, not with the old texture and new dimensions. */
-      CHECK(SDL_RenderPresent(renderer));
+      SettleWindow(window, renderer);
       settings.ignore_aspect = 1;
     }
     CHECK(SDL_SetTextureScaleMode(texture, i & 1 ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST));
