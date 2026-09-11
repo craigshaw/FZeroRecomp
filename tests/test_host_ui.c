@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include "config.h"
 #include "frame_rate.h"
 #include "runtime_ui.h"
@@ -40,6 +43,10 @@ static void TestSettings(void) {
   FZeroSettingsLoad("config.ini", &loaded);
   CHECK(loaded.volume == 35 && loaded.window_scale == 4 && loaded.linear_filter == 1);
   CHECK(loaded.show_fps == 1 && loaded.visual_style == 3 && loaded.widescreen == 1);
+  const char *windows_other = "[KeyMap]\r\n# Windows line endings\r\nPause = P\r\n";
+  Write("windows.ini", "[Settings]\r\nVolume = 20\r\n[KeyMap]\r\n# Windows line endings\r\nPause = P\r\n");
+  FZeroSettingsSave("windows.ini", &s);
+  text = Read("windows.ini"); CHECK(strstr(text, windows_other)); free(text);
   Write("invalid.ini", "[Settings]\nVolume = -99\nWindowScale = 9000\n"
         "AudioFreq = 12345\nPlayer1Source = 10\nDeadzone1 = -5\n"
         "LinearFilter = junk\nSkipLauncher = 999999999999999999999999999999\n");
@@ -83,9 +90,11 @@ static int Button(FZeroRuntimeUi *rt, int button, int down) {
 static void TestMenu(void) {
   Write("config.ini", "[KeyMap]\nDisplayPerf = F\n");
   FZeroSettings s; FZeroSettingsInitDefault(&s);
-  SDL_Window *window = SDL_CreateWindow("Synthetic UI test", 768, 672, SDL_WINDOW_HIDDEN);
+  SDL_Window *window = SDL_CreateWindow("Synthetic UI test", 768, 672, getenv("FZERO_TEST_GPU") ? 0 : SDL_WINDOW_HIDDEN);
   CHECK(window);
-  SDL_Renderer *renderer = SDL_CreateRenderer(window, NULL); CHECK(renderer);
+  /* Exercise the same renderer selection as the game, including GPU runs. */
+  FZeroPresentation *presentation = FZeroPresentationCreate(window, false); CHECK(presentation);
+  SDL_Renderer *renderer = FZeroPresentationRenderer(presentation); CHECK(renderer);
   SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
       SDL_TEXTUREACCESS_STREAMING, 256, 224); CHECK(texture);
   FZeroRuntimeUi *rt = FZeroRuntimeUiCreate(&s, window, renderer, texture, NULL); CHECK(rt);
@@ -178,7 +187,7 @@ static void TestMenu(void) {
   FZeroRuntimeUiResetPad(rt);
   CHECK(!Button(rt, SDL_GAMEPAD_BUTTON_START, 1)); CHECK(!FZeroRuntimeUiIsOpen(rt));
   fzero_imgui_destroy(ig); FZeroRuntimeUiDestroy(rt);
-  SDL_DestroyTexture(texture); SDL_DestroyRenderer(renderer); SDL_DestroyWindow(window);
+  SDL_DestroyTexture(texture); FZeroPresentationDestroy(presentation); SDL_DestroyWindow(window);
 }
 static void TestFps(void) {
   FZeroFrameRate rate; FZeroFrameRateInit(&rate, 1000000000);
@@ -210,7 +219,7 @@ static void TestFps(void) {
 }
 
 static void TestPresentation(void) {
-  SDL_Window *window = SDL_CreateWindow("Synthetic presentation", 768, 672, SDL_WINDOW_HIDDEN);
+  SDL_Window *window = SDL_CreateWindow("Synthetic presentation", 768, 672, getenv("FZERO_TEST_GPU") ? 0 : SDL_WINDOW_HIDDEN);
   CHECK(window);
   FZeroPresentation *video = FZeroPresentationCreate(window, false); CHECK(video);
   if (getenv("FZERO_TEST_GPU")) CHECK(FZeroPresentationHasShader(video));
@@ -235,6 +244,11 @@ static void TestPresentation(void) {
   for (int i = 0; i < 4; ++i) {
     if (i == 2) {
       CHECK(SDL_SetWindowSize(window, 1001, 733));
+      CHECK(SDL_SyncWindow(window));
+      SDL_PumpEvents();
+      /* GPU backbuffers follow swapchain size at present. Read back only
+       * after that transition, not with the old texture and new dimensions. */
+      CHECK(SDL_RenderPresent(renderer));
       settings.ignore_aspect = 1;
     }
     CHECK(SDL_SetTextureScaleMode(texture, i & 1 ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST));
@@ -446,6 +460,10 @@ static void TestPresentation(void) {
   SDL_DestroyWindow(window);
 }
 int main(void) {
+#ifdef _WIN32
+  /* Let automation observe a failing exit code without a modal OS dialog. */
+  SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+#endif
   CHECK(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD));
   TestSettings(); TestBindings(); TestSaveMigration(); TestFps(); TestMenu(); TestPresentation();
   SDL_Quit(); puts("host UI tests: passed"); return 0;

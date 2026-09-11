@@ -297,6 +297,15 @@ static int DefaultRomExists(void) {
 
 /* ── main ──────────────────────────────────────────────────────────────── */
 
+static bool VerifyRom(const char *path, const uint8 expected[32]) {
+  const char *driver = getenv("SDL_VIDEODRIVER");
+  /* The shared verifier opens a native Windows message box. Automated runs
+   * must report rejection on stderr and exit without waiting for a click. */
+  if (getenv("SNESRECOMP_MAX_FRAMES") || (driver && !strcmp(driver, "dummy")))
+    return snesrecomp_rom_match_sha256(path, (const uint8 (*)[32])expected, 1) == 0;
+  return snesrecomp_rom_verify_sha256(path, expected) != 0;
+}
+
 int main(int argc, char **argv) {
   static const uint8 expected_sha256[32] = {
       0xbf, 0x16, 0xc3, 0xc8, 0x67, 0xc5, 0x8e, 0x2a,
@@ -348,7 +357,7 @@ int main(int argc, char **argv) {
   }
   /* Reject an incompatible explicit ROM before the shared resolver caches it. */
   if (positional_rom &&
-      !snesrecomp_rom_verify_sha256(resolver_rom, expected_sha256)) {
+      !VerifyRom(resolver_rom, expected_sha256)) {
     fprintf(stderr, "ROM verification failed: %s\n", resolver_rom);
     return 1;
   }
@@ -405,7 +414,7 @@ int main(int argc, char **argv) {
   if (want_launcher && settings.skip_launcher) {
     char cached[1024];
     if (ReadCachedRomPath(cached, sizeof(cached)) &&
-        snesrecomp_rom_verify_sha256(cached, expected_sha256)) {
+        VerifyRom(cached, expected_sha256)) {
       snprintf(rom_path, sizeof(rom_path), "%s", cached);
       rom_resolved = 1;
       want_launcher = 0;
@@ -510,7 +519,7 @@ int main(int argc, char **argv) {
    * cache explicitly when bypassing the launcher. */
   if (!rom_resolved && !resolver_rom &&
       ReadCachedRomPath(resolver_arg, sizeof(resolver_arg)) &&
-      snesrecomp_rom_verify_sha256(resolver_arg, expected_sha256))
+      VerifyRom(resolver_arg, expected_sha256))
     resolver_rom = resolver_arg;
 #endif
   if (!rom_resolved && headless && !resolver_rom) {
@@ -531,7 +540,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (!snesrecomp_rom_verify_sha256(rom_path, expected_sha256)) {
+  if (!VerifyRom(rom_path, expected_sha256)) {
     fprintf(stderr, "ROM verification failed: %s\n", rom_path);
     return 1;
   }

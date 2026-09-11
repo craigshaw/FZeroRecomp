@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include "scene_dxil.h"
+#endif
 
 struct FZeroPresentation {
     SDL_Renderer *renderer;
@@ -68,13 +71,19 @@ static const char kSceneShader[] =
 static bool CreateShader(FZeroPresentation *v) {
     v->device = SDL_GetPointerProperty(SDL_GetRendererProperties(v->renderer),
                                        SDL_PROP_RENDERER_GPU_DEVICE_POINTER, NULL);
-    if (!v->device || !(SDL_GetGPUShaderFormats(v->device) & SDL_GPU_SHADERFORMAT_MSL))
-        return false;
+    if (!v->device) return false;
     SDL_GPUShaderCreateInfo info = {0};
+#ifdef _WIN32
+    info.code = kSceneShaderDXIL;
+    info.code_size = sizeof(kSceneShaderDXIL);
+    info.format = SDL_GPU_SHADERFORMAT_DXIL;
+#else
     info.code = (const Uint8 *)kSceneShader;
     info.code_size = sizeof(kSceneShader) - 1;
-    info.entrypoint = "scene";
     info.format = SDL_GPU_SHADERFORMAT_MSL;
+#endif
+    if (!(SDL_GetGPUShaderFormats(v->device) & info.format)) return false;
+    info.entrypoint = "scene";
     info.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
     info.num_samplers = 1;
     info.num_uniform_buffers = 1;
@@ -99,12 +108,16 @@ FZeroPresentation *FZeroPresentationCreate(SDL_Window *window, bool legacy) {
     FZeroPresentation *v = calloc(1, sizeof(*v));
     if (!v) return NULL;
     v->legacy = legacy;
-#if defined(__APPLE__) && SDL_VERSION_ATLEAST(3, 4, 0)
+#if (defined(__APPLE__) || defined(_WIN32)) && SDL_VERSION_ATLEAST(3, 4, 0)
     if (!legacy && strcmp(SDL_GetCurrentVideoDriver(), "dummy")) {
         SDL_PropertiesID props = SDL_CreateProperties();
         SDL_SetPointerProperty(props, SDL_PROP_RENDERER_CREATE_WINDOW_POINTER, window);
         SDL_SetStringProperty(props, SDL_PROP_RENDERER_CREATE_NAME_STRING, "gpu");
+#ifdef _WIN32
+        SDL_SetBooleanProperty(props, SDL_PROP_RENDERER_CREATE_GPU_SHADERS_DXIL_BOOLEAN, true);
+#else
         SDL_SetBooleanProperty(props, SDL_PROP_RENDERER_CREATE_GPU_SHADERS_MSL_BOOLEAN, true);
+#endif
         v->renderer = SDL_CreateRendererWithProperties(props);
         SDL_DestroyProperties(props);
         if (v->renderer && !CreateShader(v)) {
@@ -147,6 +160,9 @@ FZeroPresentation *FZeroPresentationCreate(SDL_Window *window, bool legacy) {
             FZeroPresentationHasShader(v) ? "GPU scene shader + HUD composition" :
             legacy ? "legacy single texture" : "SDL scene + HUD composition (no custom shader)",
             SDL_GetRendererName(v->renderer));
+#if SDL_VERSION_ATLEAST(3, 4, 0)
+    if (v->device) fprintf(stderr, "[Video] GPU backend: %s\n", SDL_GetGPUDeviceDriver(v->device));
+#endif
     return v;
 fail:
     FZeroPresentationDestroy(v);

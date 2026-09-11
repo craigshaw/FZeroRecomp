@@ -13,8 +13,9 @@ part of the source repository.
 
 ## Status and features
 
-Most of the game has been tested
-on macOS with Apple Silicon. Windows and Linux builds are not yet verified.
+Most of the game has been tested on macOS with Apple Silicon. Windows x64 now
+builds with MSVC and passes the synthetic host, graphics, and raster tests,
+including GPU readback on Intel Iris Xe. Linux builds are not yet verified.
 Development is ongoing; not every course, vehicle, or game situation is covered.
 
 - Optional 16:9 widescreen
@@ -23,9 +24,9 @@ Development is ongoing; not every course, vehicle, or game situation is covered.
 - ROM picker with identity verification
 - In-game display, audio, and input settings
 
-Filters currently require macOS, SDL 3.4 or newer, and the Metal renderer. Other
-renderers retain Original colours and support widescreen. Unsupported game
-layouts use the native view.
+Filters use SDL 3.4 or newer's GPU renderer: Metal on macOS, or Direct3D 12
+with Shader Model 6.0 on Windows. Other renderers retain Original colours and
+support widescreen. Unsupported game layouts use the native view.
 
 ## ROM requirements
 
@@ -91,10 +92,50 @@ the launcher for one run, pass a ROM path:
 ./build/fzero_recomp "/path/to/F-Zero (USA).sfc"
 ```
 
-On Windows, install the requirements separately, use `python` for generation,
-and run `./build.ps1` from PowerShell instead of `sh build.sh`. It does not
-install dependencies or generate game code. The executable is
-`build/fzero_recomp.exe`. This path remains unverified.
+### Windows (native x64 MSVC)
+
+Install Git for Windows, Python 3.11+, and Visual Studio Build Tools with the
+C++ x64 workload, Windows SDK (including `dxc.exe`), and CMake tools for Windows.
+The script discovers the compiler environment, restores pinned SDL3 through
+vcpkg, verifies your ROM, generates C, compiles the visual filters, and builds
+the game and tests. Run from ordinary PowerShell:
+
+```powershell
+.\build.ps1 -RomPath "C:\path\to\F-Zero (USA).sfc"
+.\build\windows-msvc-x64-release\fzero_recomp.exe
+```
+
+Use `-SkipGenerate` for later host/shader edits, `-SkipSubmoduleUpdate` when
+the pinned submodules are already present, and `-Fresh` to reconfigure CMake
+(requires CMake 3.24+). `FZERO_ROM` can supply the ROM path instead of `-RomPath`.
+For generation alone, run `tools\regenerate.ps1 -RomPath "C:\path\to\F-Zero (USA).sfc"`.
+
+Build output, including `SDL3.dll` and launcher assets, is under
+`build\windows-msvc-x64-release\`. DXIL shader bytecode is embedded in the
+executable; there are no loose shaders or runtime shader compiler dependencies.
+Dependency caches stay under ignored `.tools/` and build directories.
+
+### Windows release ZIP
+
+After building, run:
+
+```powershell
+python tools/package_windows.py --version 0.1.0
+```
+
+The packager runs CTest and GPU presentation checks (brief test windows appear),
+stages only program files and notices, resolves x64 SDL/Visual C++ runtime
+dependencies, and tests ROM rejection with a clean PATH. A GPU supporting the
+filter path is required on the packaging machine. The ZIP and SHA-256 file are
+written under `build-release/v0.1.0-windows-x64/`. Existing output is never
+overwritten; use `--output` to select a new directory for a subsequent build.
+
+To play, extract the entire ZIP to a writable folder and open
+`fzero_recomp.exe`. Windows 10/11 x64 is the intended target; no development
+tools or separate SDL installation are required. Keep the executable, DLLs,
+and assets together. Settings and saves stay alongside the executable, so
+preserve `config.ini`, `keybinds.ini`, `rom.cfg`, and `saves/` when updating.
+The ZIP contains no ROM, generated C, recordings, or user data.
 
 ## Controls and settings
 

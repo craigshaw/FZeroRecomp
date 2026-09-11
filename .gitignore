@@ -36,3 +36,7 @@ tier2_*.json
 
 # Local agent instructions.
 /AGENTS.md
+
+# Windows dependency caches.
+/.tools/
+/vcpkg_installed/

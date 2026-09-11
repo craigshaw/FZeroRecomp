@@ -111,9 +111,10 @@ void FZeroSettingsSave(const char *path, const FZeroSettings *s) {
     char *tmp = malloc(strlen(path) + 5);
     if (!tmp) return;
     sprintf(tmp, "%s.tmp", path);
-    FILE *out = fopen(tmp, "w");
+    /* Preserve unrelated bytes and line endings on Windows as well as Unix. */
+    FILE *out = fopen(tmp, "wb");
     if (!out) { free(tmp); return; }
-    FILE *in = fopen(path, "r");
+    FILE *in = fopen(path, "rb");
     int seen[FIELD_COUNT] = {0};
     int in_settings = 0, found_settings = 0, ok = 1;
     char raw[4096], copy[4096];
@@ -154,7 +155,18 @@ void FZeroSettingsSave(const char *path, const FZeroSettings *s) {
     if (fclose(out)) ok = 0;
     if (ok) {
 #ifdef _WIN32
-        ok = MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING) != 0;
+        /* Indexers and virus scanners can briefly hold the destination open.
+         * Retry only transient sharing/access errors, retaining the old file. */
+        for (int attempt = 0; ; ++attempt) {
+            ok = MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING) != 0;
+            if (ok) break;
+            DWORD error = GetLastError();
+            if (attempt == 5 || (error != ERROR_SHARING_VIOLATION && error != ERROR_ACCESS_DENIED)) {
+                fprintf(stderr, "[Config] Replace failed with Windows error %lu\n", error);
+                break;
+            }
+            Sleep(20);
+        }
 #else
         ok = rename(tmp, path) == 0;
 #endif

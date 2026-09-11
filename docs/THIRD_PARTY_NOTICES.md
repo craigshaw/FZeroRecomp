@@ -12,6 +12,11 @@ Release packages also include SDL3, tinyfiledialogs, stb_image, and their
 licence texts. Bundled launcher fonts retain their separate terms in
 [font notices](../assets/licenses/fonts.txt).
 
+Windows release packages also include the required x64 Microsoft Visual C++
+runtime DLLs from the installed Visual Studio redistributable directory, with
+Microsoft's redistribution notice. The HLSL scene shader is authored in this
+project. DXC is a build-time tool and is not included in the game ZIP.
+
 The MIT License (MIT)
 
 Copyright (c) 2014-2025 Omar Cornut

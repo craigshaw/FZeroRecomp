@@ -13,6 +13,10 @@ def main() -> None:
         root = Path(directory)
         exe = root / binary.name
         shutil.copy2(binary, exe)
+        # Windows resolves dependent DLLs before entering main().
+        if sys.platform == "win32":
+            for library in binary.parent.glob("*.dll"):
+                shutil.copy2(library, root / library.name)
         rom = root / "invented.sfc"
         rom.write_bytes(bytes(4096))
         cache = root / "rom.cfg"

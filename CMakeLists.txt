@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(fzero_recomp C CXX)
 
 set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 
 set(SNESRECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/snesrecomp" CACHE PATH
     "Path to the snesrecomp checkout used by this game")
@@ -13,9 +14,14 @@ endif()
 set(RECOMP_UI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/recomp-ui" CACHE PATH
     "Path to the pinned recomp-ui checkout")
 include(${RECOMP_UI_ROOT}/recomp_ui.cmake)
+include(cmake/fzero_shaders.cmake)
 
 file(GLOB GENERATED_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/generated/*.c")
+
+if(NOT GENERATED_SOURCES)
+    message(FATAL_ERROR "No generated C found. Run tools/regenerate.ps1 with your F-Zero (USA) ROM, or follow the README generation steps.")
+endif()
 
 add_executable(fzero_recomp
     ${SNESRECOMP_RUNNER_SOURCES}
@@ -43,6 +49,7 @@ target_include_directories(fzero_recomp PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 snesrecomp_target_sdl(fzero_recomp)
+fzero_target_shaders(fzero_recomp)
 recomp_target_launcher_ui(fzero_recomp
     CONSOLE snes
     BOXART "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/boxart.png"
@@ -86,6 +93,7 @@ if(BUILD_TESTING)
         ${RECOMP_UI_ROOT}/src/third_party/imgui/backends)
     set_target_properties(fzero_host_ui_tests PROPERTIES CXX_STANDARD 17)
     snesrecomp_target_sdl(fzero_host_ui_tests)
+    fzero_target_shaders(fzero_host_ui_tests)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/host-ui-test-data")
     add_test(NAME fzero_host_ui COMMAND fzero_host_ui_tests)
     set_tests_properties(fzero_host_ui PROPERTIES

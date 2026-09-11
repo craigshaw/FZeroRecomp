@@ -9,7 +9,7 @@ typedef enum FZeroVisualStyle {
     FZERO_VISUAL_BLACK_AND_WHITE, FZERO_VISUAL_HUD_DIAGNOSTIC
 } FZeroVisualStyle;
 
-/* Prefer the custom Metal shader path; use SDL composition if unavailable.
+/* Prefer custom Metal (Mac) or DXIL (Windows) shaders; use SDL composition if unavailable.
  * legacy requests the original single-texture path for comparison. */
 FZeroPresentation *FZeroPresentationCreate(SDL_Window *window, bool legacy);
 void FZeroPresentationDestroy(FZeroPresentation *video);

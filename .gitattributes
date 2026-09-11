@@ -1,2 +1,5 @@
 # Patch payloads preserve source line endings and email-patch separators.
 patches/snesrecomp/*.patch -whitespace
+
+*.ps1 text eol=crlf
+*.sh text eol=lf

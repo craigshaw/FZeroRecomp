@@ -72,11 +72,25 @@ animation coverage is incomplete. Widescreen adds no HD Mode 7 or interpolation.
 
 ## Shaders and UI
 
-On macOS with SDL 3.4+, the GPU renderer runs Metal scene shaders, then draws
-the protected HUD with its original RGB. Original preserves colours; Enhanced
+With SDL 3.4+, the GPU renderer runs a Metal scene shader on macOS or an
+embedded DXIL scene shader on Windows, then draws the protected HUD with its
+original RGB. Original preserves colours; Enhanced
 adds colour grading and bloom; Vivid adds saturation and contrast; Black & White
 uses weighted greyscale. Other renderers use SDL composition with effects disabled.
 The saved style remains available for a later supported run.
+
+The Windows HLSL equivalent lives in `src/shaders/scene.hlsl`; CMake uses the
+Windows SDK's DXC to compile and embed it in both the game and presentation
+tests. Keep its equations and style values aligned with the Metal source in
+`src/presentation.c`. SDL's shipped DXIL vertex shader exposes colour as
+`TEXCOORD0` and UV as `TEXCOORD1` (the original HLSL names are remapped by SDL's
+shader build). A resource-compatible shader can still fail at pipeline creation
+if these semantics do not match, so actual GPU readback is required.
+
+GPU tests use visible windows and present after a synchronised resize before
+reading the window image. SDL's GPU backbuffer adopts the swapchain dimensions
+on presentation; reading new window dimensions against the old backbuffer can
+fail inside the graphics driver. Scene/HUD readback uses fixed-size textures.
 
 The runtime menu and FPS readout draw after game composition. Restore the game
 viewport and logical presentation after ImGui. The local SDL3 renderer backend
@@ -97,7 +111,7 @@ Use isolated executable-relative settings and saves for comparisons.
 | Variable | Purpose |
 | --- | --- |
 | `SNESRECOMP_VALIDATE_PRESENTATION=1` | GPU readback comparison; requires the shader path and exits on a mismatch |
-| `SNESRECOMP_HUD_DIAGNOSTIC=1` | Greyscale scene with coloured protected pixels; requires Metal |
+| `SNESRECOMP_HUD_DIAGNOSTIC=1` | Greyscale scene with coloured protected pixels; requires the shader path |
 | `SNESRECOMP_PRESENTATION=legacy` | Compare with the older single-texture native presentation |
 
 Readback checks all composite RGB in Original and protected HUD RGB in effect
