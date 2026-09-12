@@ -69,6 +69,8 @@ void FZeroRunOneFrameOfGame(void) {
       g_layers->wide_scene = FZeroSceneWide(g_ram);
       g_layers->native_oam = g_ram[0x50] == 0;
       g_layers->intro_panorama = FZeroSceneIntro(g_ram);
+      g_layers->results_layout = FZeroSceneResults(g_ram) ||
+          (g_layers->wide_scene && g_ram[0x54] == 2 && g_ram[0xc3] == 0x11);
       g_layers->hud_layout = g_layers->wide_scene && !g_layers->native_oam &&
           !g_layers->intro_panorama && !FZeroSceneTitle(g_ram) &&
           !FZeroSceneResults(g_ram) && g_ram[0xc3] != 0x11;

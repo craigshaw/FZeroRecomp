@@ -126,6 +126,8 @@ static void CheckSceneTransitions(void) {
         CHECK(layers.move_hud==(cases[i].hud || (cases[i].wide &&
               cases[i].mode==2 && cases[i].exception==0x40)));
         CHECK(layers.intro_panorama==(cases[i].mode==2 && cases[i].process<=1));
+        CHECK(layers.results_layout==(cases[i].wide &&
+              (cases[i].mode==3 || (cases[i].mode==2 && cases[i].exception==0x11))));
     }
     /* Intro geometry does not require the racing HUD or final horizon split.
      * Free-practice results can also disable the racing meter. */

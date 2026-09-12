@@ -304,6 +304,63 @@ static void CheckMovedHud(void) {
 void TestVehicles(void);
 void TestGround(void);
 
+static void CheckTextFilters(bool results) {
+    memset(&layers, 0, sizeof(layers));
+    ppu_reset(&ppu);
+    PpuBeginDrawing(&ppu, (uint8_t *)original, sizeof(original[0]), kPpuRenderFlags_NewRenderer);
+    ppu.inidisp=15; ppu.bgmode=1; ppu.screenEnabled[0]=0x10;
+    ppu.cgram[0]=0x001f; ppu.cgram[129]=ppu.cgram[193]=0x03e0;
+    for(int slot=0;slot<128;++slot) SetSprite(slot,384,128,false,0);
+    for(int row=0;row<8;++row) ppu.vram[0x300+row]=0xff;
+    layers.intro_panorama=!results; layers.results_layout=results; layers.native_oam=true;
+    /* Intro and frozen result lettering use the native sprite list.
+     * Protect it at the centre and either edge while filtering the backdrop. */
+    const int positions[]={64,-4,252};
+    for(int palette=0;palette<=4;palette+=4)
+    for(unsigned i=0;i<sizeof(positions)/sizeof(positions[0]);++i) {
+        int origin=positions[i];
+        SetSprite(60,origin,80,false,0x3030|(palette<<9));
+        CheckPolicy(true,false,84);
+        for(int x=0;x<FZERO_WIDE_WIDTH;++x) {
+            int native=x-FZERO_WIDE_MARGIN;
+            bool text=native>=origin && native<origin+8;
+            CHECK(layers.wide_hud[83][x]==(text?0xff00ff00u:0));
+            if(!text) CHECK(layers.wide_world[83][x]==0xff0000);
+        }
+    }
+    /* The intro has no racing power meter, even at its usual coordinates. */
+    CheckPolicy(true,false,20);
+    CHECK(!layers.hud[19][180] && layers.world[19][180]==0xff0000);
+    /* BG3 lettering is protected below the racing HUD's top band too. */
+    ppu.screenEnabled[0]=4; ppu.bgXsc[2]=4; ppu.cgram[1]=0x7c00;
+    for(int tile=0;tile<1024;++tile) ppu.vram[0x400+tile]=0;
+    for(int row=0;row<8;++row) ppu.vram[row]=0xaa;
+    CheckPolicy(true,false,84);
+    CHECK(layers.hud[83][0]==0xff0000ffu && !layers.hud[83][1]);
+    CHECK(layers.world[83][1]==0xff0000);
+    if(results) {
+        /* The GP ending retains racing cars behind centred result lettering.
+         * Cars keep the filter while text outside the normal HUD slots does not. */
+        ppu.screenEnabled[0]=0x10; layers.native_oam=false;
+        SetSprite(60,64,80,false,0x3030);
+        SetSprite(68,96,80,false,0x3030);
+        for(int mode=1;mode<=7;mode+=6) {
+            ppu.bgmode=mode;
+            CheckPolicy(true,false,84);
+            CHECK(layers.hud[83][64]==0xff00ff00u);
+            CHECK(!layers.hud[83][96] && layers.world[83][96]==0x00ff00);
+            CHECK(!layers.hud[83][180] && !layers.wide_hud[83][0]);
+        }
+    }
+    /* Unknown menus and unsupported rendering retain the full fallback. */
+    layers.intro_panorama=false; layers.results_layout=false;
+    CheckPolicy(true,false,84); CHECK(layers.hud[83][1]>>24);
+    layers.intro_panorama=!results; layers.results_layout=results; ppu.inidisp=0x80;
+    CheckPolicy(true,false,84); CHECK(layers.hud[83][1]>>24);
+    CHECK(layers.wide_hud[83][0]==0xff000000u);
+    memset(&layers,0,sizeof(layers));
+}
+
 int main(void) {
     ppu_reset(&ppu);
     PpuBeginDrawing(&ppu, (uint8_t *)original, sizeof(original[0]), kPpuRenderFlags_NewRenderer);
@@ -421,7 +478,8 @@ int main(void) {
                         int row=(first_scroll+shifts[d]+line)/8-first_row;
                         unsigned colour=((u/8)*7+row*3)%15+1;
                         unsigned channel=(colour<<3)|(colour>>2);
-                        CHECK(layers.wide_hud[line-1][x]==(0xff000000u|channel*0x010101));
+                        CHECK(!layers.wide_hud[line-1][x]);
+                        CHECK(layers.wide_world[line-1][x]==channel*0x010101);
                     }
                 }
             }
@@ -477,6 +535,8 @@ int main(void) {
     CHECK(!layers.wide_world[110][0] && layers.wide_hud[110][0]==0xff000000);
     CheckWideSprites();
     CheckMovedHud();
+    CheckTextFilters(false);
+    CheckTextFilters(true);
     TestVehicles();
     TestGround();
     puts("layer extraction tests: passed");

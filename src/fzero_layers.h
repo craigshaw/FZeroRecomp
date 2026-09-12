@@ -18,7 +18,7 @@ typedef struct FZeroLayers {
     FZeroVehicles vehicles;
     FZeroGround ground;
     /* Policy for the pending upload, captured with vehicles and ground. */
-    bool wide_scene, hud_layout, native_oam, intro_panorama;
+    bool wide_scene, hud_layout, native_oam, intro_panorama, results_layout;
     /* Instrument placement is independent of selective scene effects. */
     bool move_hud;
     unsigned long wide_lines;
@@ -27,7 +27,8 @@ typedef struct FZeroLayers {
 
 /* Called after the authentic scanline and before HDMA/IRQ changes its state.
  * Only the copied PPU is redrawn. Live PPU and guest memory remain untouched.
- * racing enables background and vehicle-edge expansion. hud_layout permits selective HUD
- * extraction; otherwise the full width retains Original colours. */
+ * racing enables background and vehicle-edge expansion. hud_layout permits racing HUD
+ * extraction; intro_panorama and results_layout protect lettering while filtering scenery.
+ * Other layouts retain Original colours across the full width. */
 void FZeroLayersProcessLine(FZeroLayers *layers, const Ppu *ppu, int line,
                             bool racing, bool hud_layout);

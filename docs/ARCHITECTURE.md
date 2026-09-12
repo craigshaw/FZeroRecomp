@@ -62,8 +62,10 @@ and native sprite limits are unchanged.
 | Layout | Wide view | Colour and HUD policy |
 | --- | --- | --- |
 | Racing, pause, recharge, recovery | Extended course and supported vehicles | Selected style; protected HUD; instruments at wider edges |
+| Course intro and countdown | Extended course and backdrop | Selected style from the first visible intro frame; protected intro lettering, then racing HUD |
 | Recognised crash, finish, and loss | Wide while the racing layout remains valid | Instruments stay wide; full native effects retain Original colours |
-| Title, intro, race results, GP results | Extended backdrop | Original colours; title and results text stay centred |
+| Race results and GP ending camera | Extended backdrop | Selected style; protected result lettering; text stays centred |
+| Title | Extended backdrop | Original colours; title text stays centred |
 | Unrecognised layout or unsupported render mode | Native view | Original colours |
 
 Object creation/removal and depth limits remain those of the game, so cars may

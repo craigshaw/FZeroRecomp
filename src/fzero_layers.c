@@ -116,6 +116,15 @@ static void ExtendVehicleSprites(Ppu *copy) {
     copy->renderFlags |= kPpuRenderFlags_NoSpriteLimits;
 }
 
+/* Intro and result layouts use sprites and BG3 for lettering and counters.
+ * Use the visible source so hidden text does not mask the scenery above it. */
+static bool TextOverlayPixel(const Ppu *ppu, int x, bool native_oam) {
+    unsigned layer = (ppu->bgBuffers[0].data[x + kPpuExtraLeftRight] >> 8) & 15;
+    /* Source 6 is OBJ palettes 0..3, which bypass SNES colour math. */
+    return layer == kPpuOverlaySource_Bg3 ||
+        (native_oam && (layer == kPpuOverlaySource_Obj || layer == 6));
+}
+
 /* Side backgrounds and vehicles are rendered on a copy. The authentic centre
  * and live sprite evaluation retain their original width and hardware limits.
  * Capture also runs with widescreen off so a paused menu can switch immediately. */
@@ -151,7 +160,8 @@ static void BuildWideLine(FZeroLayers *layers, const Ppu *ppu, int line,
             if (x >= FZERO_WIDE_MARGIN && x < FZERO_WIDE_MARGIN + FZERO_NATIVE_WIDTH) continue;
             /* A full-centre fallback must also protect the sides. Otherwise
              * Enhanced grades only the margins and exposes the old viewport. */
-            if (hud_layout) {
+            if (hud_layout || ((layers->intro_panorama || layers->results_layout) &&
+                !TextOverlayPixel(copy, x - FZERO_WIDE_MARGIN, layers->native_oam))) {
                 world[x] = layers->wide_capture[y][x];
                 hud[x] = 0;
             } else {
@@ -237,7 +247,18 @@ void FZeroLayersProcessLine(FZeroLayers *layers, const Ppu *ppu, int line,
         !PPU_forcedBlank(ppu) && !ppu->extraLeftRight && !PPU_objInterlace(ppu) &&
         (ppu->renderFlags & kPpuRenderFlags_NewRenderer);
     bool mask[FZERO_LAYER_WIDTH] = {0};
-    if (supported && hud_layout) {
+    bool text_layout = layers->intro_panorama || layers->results_layout;
+    if (supported && text_layout) {
+        /* Keep the selected filter through intro and results. The GP ending
+         * retains racing vehicles; protect its text slots but not those cars.
+         * These layouts do not use the racing power-window mask. */
+        if (!layers->native_oam) {
+            CaptureSprites(layers, ppu, line, 0, 68, mask);
+            CaptureSprites(layers, ppu, line, 126, 2, mask);
+        }
+        for (int x = 0; x < FZERO_LAYER_WIDTH; ++x)
+            mask[x] |= TextOverlayPixel(ppu, x, layers->native_oam);
+    } else if (supported && hud_layout) {
         /* Racing messages, map, times and counters. Exhaust, sparks, vehicles
          * and shadows remain in the scene. Tail counter slots are separate. */
         CaptureHudSprites(layers, ppu, line, 0, mask);
@@ -248,7 +269,7 @@ void FZeroLayersProcessLine(FZeroLayers *layers, const Ppu *ppu, int line,
             if (y >= 18 && y < 30 && x >= 174 && x < 242) mask[x] = true;
         }
     } else {
-        /* Menus, transitions and unclassified HUD layouts retain Original
+        /* Menus and unclassified HUD layouts retain Original
          * in the centre. Background expansion has a separate eligibility. */
         memset(mask, 1, sizeof(mask));
         ++layers->protected_lines;
@@ -261,6 +282,6 @@ void FZeroLayersProcessLine(FZeroLayers *layers, const Ppu *ppu, int line,
     }
     BuildWideLine(layers, ppu, line, supported, hud_layout);
     if(supported && layers->move_hud) MoveWideHud(layers,ppu,line,!hud_layout);
-    if (supported && hud_layout && pixels) ++layers->extracted_lines;
+    if (supported && (hud_layout || text_layout) && pixels) ++layers->extracted_lines;
     layers->hud_pixels += pixels;
 }
