@@ -8,8 +8,9 @@
  * window seeds from this struct and the user's choices map back into it on
  * Play; the host then applies them (window size, fullscreen, filtering,
  * audio, input source) and persists them to config.ini [Settings] (see
- * config.c). Defaults use a 3x window, integer scaling, 48 kHz stereo audio,
- * and keyboard input. The game picture remains 256x224.
+ * config.c). First boot uses fullscreen, stretch to fill, widescreen and
+ * the Enhanced race filter, with 48 kHz stereo audio and keyboard input.
+ * The saved window scale is 3x when fullscreen is turned off.
  */
 typedef struct FZeroSettings {
     int output_method;   /* 0 SDL (the only backend this host implements) */
@@ -32,12 +33,12 @@ static inline void FZeroSettingsInitDefault(
     FZeroSettings *s) {
     s->output_method = 0;
     s->window_scale = 3;
-    s->fullscreen = 0;
-    s->ignore_aspect = 0;
+    s->fullscreen = 1;
+    s->ignore_aspect = 1;
     s->linear_filter = 0;
     s->show_fps = 0;
-    s->visual_style = 0;
-    s->widescreen = 0;
+    s->visual_style = 1;
+    s->widescreen = 1;
     s->enable_audio = 1;
     s->audio_freq = 48000;
     s->volume = 100;

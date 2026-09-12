@@ -8,6 +8,9 @@ own terms: [snesrecomp](../snesrecomp/LICENSE), its
 [recomp-ui](../recomp-ui/LICENSE), and
 [Dear ImGui](../recomp-ui/src/third_party/imgui/LICENSE.txt).
 
+The build-local launcher backend modified by `patches/recomp-ui/` retains
+[recomp-ui's MIT licence](../recomp-ui/LICENSE).
+
 Release packages also include SDL3, tinyfiledialogs, stb_image, and their
 licence texts. Bundled launcher fonts retain their separate terms in
 [font notices](../assets/licenses/fonts.txt).

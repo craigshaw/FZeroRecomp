@@ -11,6 +11,7 @@ hardware output through SDL3.
 | --- | --- |
 | `src/main.c`, `src/config.c` | ROM verification, paths, audio, input, settings, and the desktop loop |
 | `src/fzero_rtl.c`, `src/fzero_spc_player.c` | Game scheduling and audio integration |
+| `src/launcher_settings.*`, `src/launcher_controls.inc` | Launcher settings transfer and F-Zero menu controls |
 | `src/runtime_ui*` | Settings adapter, paused menu, and FPS overlay |
 | `src/presentation.c` | Scene/HUD composition, shaders, and scaling |
 | `src/fzero_layers.c`, `src/fzero_scene.h` | Display-state eligibility, panorama extension, HUD capture and placement |
@@ -106,6 +107,21 @@ runtime menu share settings. Source builds use executable-relative storage;
 the packaged Mac app uses `~/Library/Application Support/FZeroRecomp/` and
 loads assets from its bundle. Save migration in source builds copies a legacy
 save only when the destination is absent and retains the original.
+
+The launcher's Display menu uses the same seven controls and order as the
+in-game menu. `launcher_settings.c` transfers standard ABI fields and stages
+Race Filter and FPS Readout, which the pinned launcher ABI does not contain.
+Play accepts those staged settings; closing the launcher discards them. The
+hotkey panel lists fixed Settings, Screenshot and Quit shortcuts plus the
+existing FPS binding editor. The controller page offers the input sources and
+keyboard bindings the host reads, with fixed gamepad mapping explained.
+
+`cmake/fzero_launcher.cmake` applies the host adapter in `patches/recomp-ui/`
+to a build-local copy of the pinned ImGui backend. The adapter selects the
+host's control renderers and grows the Display card. The dependency checkout
+and ABI stay unchanged. A patch mismatch stops configuration and requires
+review when updating recomp-ui. See `patches/recomp-ui/README.md`.
+
 
 ## Diagnostics
 

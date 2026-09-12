@@ -179,8 +179,14 @@ are not implemented. Keyboard bindings can be changed in the launcher's
 Controller page and are loaded when you press Play.
 
 F1 or gamepad Select+Start opens settings and pauses gameplay and audio.
-**Display** contains Widescreen, Visual Style, and FPS Readout. The launcher's
-generic save-state, rewind, and reset shortcuts are not connected to this host.
+The launcher and in-game **Display** menus share Fullscreen, Widescreen,
+Window Scale, Stretch to Fill, Race Filter, Linear Filter, and FPS Readout.
+Launcher changes apply when you press **Play** and use the same saved settings.
+On first boot, Fullscreen, Stretch to Fill, and Widescreen are on, with the
+Enhanced race filter selected. Existing saved choices take precedence.
+The launcher lists only supported hotkeys: F1 for settings, F12 for screenshots,
+F for the FPS readout, and Esc to quit with settings closed. The FPS shortcut
+can be rebound; the other shortcuts are fixed.
 
 **F12** saves a timestamped PNG to `screenshots/` beside the executable (packaged
 Mac app: `~/Library/Application Support/FZeroRecomp/screenshots/`). You can also

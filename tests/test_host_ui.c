@@ -6,6 +6,7 @@
 #include <windows.h>
 #endif
 #include "config.h"
+#include "launcher_settings.h"
 #include "frame_rate.h"
 #include "runtime_ui.h"
 #include "runtime_ui_imgui.h"
@@ -34,6 +35,16 @@ static char *Read(const char *path) {
   fclose(f); return text;
 }
 static void TestSettings(void) {
+  FZeroSettings first_boot; FZeroSettingsInitDefault(&first_boot);
+  remove("first-boot.ini");
+  FZeroSettingsLoad("first-boot.ini", &first_boot);
+  CHECK(first_boot.fullscreen && first_boot.ignore_aspect && first_boot.widescreen);
+  CHECK(first_boot.visual_style == 1);
+  Write("first-boot.ini", "[Settings]\nFullscreen = 0\nIgnoreAspect = 0\n"
+        "Widescreen = 0\nVisualStyle = 0\n");
+  FZeroSettingsLoad("first-boot.ini", &first_boot);
+  CHECK(!first_boot.fullscreen && !first_boot.ignore_aspect && !first_boot.widescreen);
+  CHECK(first_boot.visual_style == 0);
   const char *other = "[KeyMap]\n  # Keep this comment and its spaces.\nPause = P\n";
   Write("config.ini", "# user file\n[Settings]\nVolume = 20\nVolume = 99\n"
         "CustomKey = retained\n[KeyMap]\n  # Keep this comment and its spaces.\nPause = P\n");
@@ -59,6 +70,39 @@ static void TestSettings(void) {
   CHECK(loaded.audio_freq == 32000 && loaded.player_src[0] == 2);
   CHECK(loaded.deadzone[0] == 0 && loaded.skip_launcher == 0 && loaded.linear_filter == 0);
 }
+static void TestLauncherSettings(void) {
+  FZeroSettings source; FZeroSettingsInitDefault(&source);
+  source.fullscreen = 1; source.widescreen = 1; source.ignore_aspect = 1;
+  source.visual_style = 3; source.show_fps = 1;
+  source.window_scale = 8; source.volume = 65;
+  source.player_src[0] = 2; source.deadzone[0] = 35;
+  RecompLauncherCSettings launcher;
+  FZeroLauncherSettingsBegin(&source, &launcher);
+  CHECK(launcher.fullscreen && launcher.widescreen && launcher.ignore_aspect);
+  CHECK(launcher.window_scale == 8 && launcher.volume == 65);
+  CHECK(FZeroLauncherExtraSettings()->visual_style == 3);
+  CHECK(FZeroLauncherExtraSettings()->show_fps == 1);
+  launcher.widescreen = 0; launcher.ignore_aspect = 0; launcher.window_scale = 7;
+  launcher.linear_filter = 1; launcher.volume = 40;
+  launcher.player_src[0] = 1; launcher.deadzone[0] = 20;
+  FZeroLauncherExtraSettings()->visual_style = 2;
+  FZeroLauncherExtraSettings()->show_fps = 0;
+  /* Launcher edits do not affect the running/saved settings until Play. */
+  CHECK(source.widescreen == 1 && source.visual_style == 3 && source.show_fps == 1);
+  FZeroLauncherSettingsAccept(&source, &launcher);
+  FZeroSettingsSave("launcher-roundtrip.ini", &source);
+  FZeroSettings loaded; FZeroSettingsInitDefault(&loaded);
+  FZeroSettingsLoad("launcher-roundtrip.ini", &loaded);
+  CHECK(loaded.fullscreen && !loaded.widescreen && !loaded.ignore_aspect);
+  CHECK(loaded.visual_style == 2 && loaded.show_fps == 0);
+  CHECK(loaded.window_scale == 7 && loaded.linear_filter == 1 && loaded.volume == 40);
+  CHECK(loaded.player_src[0] == 1 && loaded.deadzone[0] == 20);
+  /* Reopening also discards any cancelled extra-field edits. */
+  FZeroLauncherExtraSettings()->visual_style = 0;
+  FZeroLauncherSettingsBegin(&loaded, &launcher);
+  CHECK(FZeroLauncherExtraSettings()->visual_style == 2);
+}
+
 static void TestBindings(void) {
   uint32_t map[SDL_NUM_SCANCODES];
   FZeroKeyBindsDefaults(map, SDL_NUM_SCANCODES);
@@ -102,6 +146,8 @@ static void SettleWindow(SDL_Window *window, SDL_Renderer *renderer) {
 static void TestMenu(void) {
   Write("config.ini", "[KeyMap]\nDisplayPerf = F\n");
   FZeroSettings s; FZeroSettingsInitDefault(&s);
+  /* These transition checks start from the native, unfiltered view. */
+  s.fullscreen = s.ignore_aspect = s.widescreen = s.visual_style = 0;
   SDL_Window *window = SDL_CreateWindow("Synthetic UI test", 768, 672, getenv("FZERO_TEST_GPU") ? 0 : SDL_WINDOW_HIDDEN);
   CHECK(window);
   /* Exercise the same renderer selection as the game, including GPU runs. */
@@ -180,11 +226,11 @@ static void TestMenu(void) {
   /* Display menu toggle applies and persists through the normal callbacks. */
   Key(rt, SDL_SCANCODE_F1, 1);
   Key(rt, SDL_SCANCODE_RETURN, 1);
-  for (int i = 0; i < 4; ++i) Key(rt, SDL_SCANCODE_DOWN, 1);
+  for (int i = 0; i < 6; ++i) Key(rt, SDL_SCANCODE_DOWN, 1);
   Key(rt, SDL_SCANCODE_RIGHT, 1);
   CHECK(s.show_fps);
   FZeroSettingsLoad("config.ini", &saved); CHECK(saved.show_fps);
-  Key(rt, SDL_SCANCODE_DOWN, 1);
+  Key(rt, SDL_SCANCODE_UP, 1); Key(rt, SDL_SCANCODE_UP, 1);
   Key(rt, SDL_SCANCODE_RIGHT, 1); CHECK(s.visual_style == 0); /* no shader */
   FZeroRuntimeUiSetEnhancedAvailable(rt, 1);
   Key(rt, SDL_SCANCODE_RIGHT, 1); CHECK(s.visual_style == 1);
@@ -197,7 +243,8 @@ static void TestMenu(void) {
   Key(rt, SDL_SCANCODE_LEFT, 1); CHECK(s.visual_style == 1);
   Key(rt, SDL_SCANCODE_LEFT, 1); CHECK(s.visual_style == 0);
   FZeroSettingsLoad("config.ini", &saved); CHECK(saved.visual_style == 0);
-  Key(rt, SDL_SCANCODE_DOWN, 1); Key(rt, SDL_SCANCODE_RIGHT, 1); CHECK(s.widescreen);
+  for (int i = 0; i < 3; ++i) Key(rt, SDL_SCANCODE_UP, 1);
+  Key(rt, SDL_SCANCODE_RIGHT, 1); CHECK(s.widescreen);
   FZeroSettingsLoad("config.ini", &saved); CHECK(saved.widescreen);
   int wide_w,wide_h; SDL_RendererLogicalPresentation wide_mode;
   CHECK(SDL_GetRenderLogicalPresentation(renderer,&wide_w,&wide_h,&wide_mode));
@@ -337,6 +384,7 @@ static void TestPresentation(void) {
   /* Repeated frames, both filters, and the menu exercise target and state
    * restoration. Compare the actual GPU composite with synthetic colours. */
   FZeroSettings settings; FZeroSettingsInitDefault(&settings);
+  settings.fullscreen = settings.widescreen = settings.visual_style = 0;
   FZeroRuntimeUi *rt = FZeroRuntimeUiCreate(&settings, window, renderer, texture, NULL); CHECK(rt);
   FZeroImGui *ig = fzero_imgui_create(window, renderer); CHECK(ig);
   for (int i = 0; i < 4; ++i) {
@@ -563,6 +611,6 @@ int main(void) {
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 #endif
   CHECK(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD));
-  TestSettings(); TestBindings(); TestSaveMigration(); TestFps(); TestMenu(); TestPresentation();
+  TestSettings(); TestLauncherSettings(); TestBindings(); TestSaveMigration(); TestFps(); TestMenu(); TestPresentation();
   SDL_Quit(); puts("host UI tests: passed"); return 0;
 }

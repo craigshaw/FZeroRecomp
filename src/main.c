@@ -60,6 +60,7 @@
 
 #if defined(RECOMP_LAUNCHER)
 #include "recomp_launcher.h"   /* recomp_launcher_run_window() ABI */
+#include "launcher_settings.h"
 #include "launcher_profile.h"  /* launcher_profile_apply("snes", &gi) */
 #endif
 
@@ -424,20 +425,7 @@ int main(int argc, char **argv) {
 
   if (want_launcher) {
     RecompLauncherCSettings ls;
-    memset(&ls, 0, sizeof(ls));
-    ls.output_method = settings.output_method;
-    ls.window_scale = settings.window_scale;
-    ls.fullscreen = settings.fullscreen;
-    ls.ignore_aspect = settings.ignore_aspect;
-    ls.linear_filter = settings.linear_filter;
-    ls.enable_audio = settings.enable_audio;
-    ls.audio_freq = settings.audio_freq;
-    ls.volume = settings.volume;
-    ls.player_src[0] = settings.player_src[0];
-    ls.player_src[1] = settings.player_src[1];
-    ls.deadzone[0] = settings.deadzone[0];
-    ls.deadzone[1] = settings.deadzone[1];
-    ls.skip_launcher = settings.skip_launcher;
+    FZeroLauncherSettingsBegin(&settings, &ls);
 
     char init_rom[1024] = "";
     if (!ReadCachedRomPath(init_rom, sizeof(init_rom)) && resolver_rom)
@@ -455,7 +443,7 @@ int main(int argc, char **argv) {
     gi.sram_path = "saves/save.srm";
     gi.num_players = 1;
     gi.config_path = "config.ini";  /* hotkey editor target */
-    gi.widescreen_supported = 0;
+    gi.widescreen_supported = 1;
     gi.adaptive_view_supported = 0;
     gi.msu1_supported = 0;
     /* The same fingerprints this host gates on (expected_sha256 above),
@@ -486,20 +474,7 @@ int main(int argc, char **argv) {
       return 0;
     }
     if (act == RECOMP_LAUNCHER_RESULT_LAUNCH) {
-      settings.output_method = ls.output_method;
-      settings.window_scale = ls.window_scale;
-      settings.fullscreen = ls.fullscreen;
-      settings.ignore_aspect = ls.ignore_aspect != 0;
-      settings.linear_filter = ls.linear_filter != 0;
-      settings.enable_audio = ls.enable_audio != 0;
-      settings.audio_freq = ls.audio_freq;
-      settings.volume = ls.volume;
-      settings.player_src[0] = ls.player_src[0];
-      settings.player_src[1] = ls.player_src[1];
-      settings.deadzone[0] = ls.deadzone[0];
-      settings.deadzone[1] = ls.deadzone[1];
-      settings.skip_launcher = ls.skip_launcher != 0;
-      FZeroSettingsSanitize(&settings);
+      FZeroLauncherSettingsAccept(&settings, &ls);
       FZeroKeyBindsDefaults(g_key_bind, SDL_NUM_SCANCODES);
       FZeroKeyBindsLoad("keybinds.ini", g_key_bind, SDL_NUM_SCANCODES);
       /* Persist the launcher's choices so they survive the next boot. */

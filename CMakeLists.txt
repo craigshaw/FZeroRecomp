@@ -15,6 +15,7 @@ set(RECOMP_UI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/recomp-ui" CACHE PATH
     "Path to the pinned recomp-ui checkout")
 include(${RECOMP_UI_ROOT}/recomp_ui.cmake)
 include(cmake/fzero_shaders.cmake)
+include(cmake/fzero_launcher.cmake)
 
 file(GLOB GENERATED_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/generated/*.c")
@@ -56,6 +57,7 @@ recomp_target_launcher_ui(fzero_recomp
     CONSOLE snes
     BOXART "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/boxart.png"
     BOXART_NAME boxart.png)
+fzero_target_launcher(fzero_recomp)
 set_property(TARGET fzero_recomp APPEND PROPERTY LINK_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/boxart.png")
 if(NOT MSVC)
@@ -77,7 +79,7 @@ if(BUILD_TESTING)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_executable(fzero_host_ui_tests
         tests/test_host_ui.c
-        src/config.c src/runtime_ui.c src/runtime_ui_imgui.cpp
+        src/config.c src/launcher_settings.c src/runtime_ui.c src/runtime_ui_imgui.cpp
         src/presentation.c
         src/screenshot.c
         src/imgui_impl_sdlrenderer3.cpp

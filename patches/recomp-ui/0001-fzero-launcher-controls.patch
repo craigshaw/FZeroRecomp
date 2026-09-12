@@ -1,0 +1,94 @@
+--- a/launcher_imgui.cpp
++++ b/launcher_imgui.cpp
+@@ -10,6 +10,7 @@
+ //   (2) Live resize: immediate mode redraws every frame; a logical-width
+ //       breakpoint switches the dashboard between two columns and one column.
+ 
++#include "launcher_settings.h"
+ #include "launcher_backend.h"
+ #include "launcher_boot_timing.h"
+ #include "launcher_gl.h"
+@@ -1935,6 +1936,8 @@
+ // keyboard entry splits into "Keyboard + Mouse" (mouse-aim on) and "Keyboard"
+ // (off); otherwise it is the single legacy "Keyboard" entry, byte-for-byte
+ // identical to before for every non-mouse game.
++#include "launcher_controls.inc"
++
+ void draw_source_selectables(LauncherModel* m, int p) {
+     const SystemProfile* src_prof = (const SystemProfile*)m->profile;
+     const bool psx = src_prof && src_prof->id && !strcmp(src_prof->id, "psx");
+@@ -2167,7 +2170,7 @@
+ 
+     ImGui::SetNextItemWidth(cw);
+     if (ImGui::BeginCombo("##src", ui_text(launcher_model_player_src_label(m, p)))) {
+-        draw_source_selectables(m, p);
++        fzero_launcher_source(m, p);
+         ImGui::EndCombo();
+     }
+     ImGui::Dummy(ImVec2(0, px(4)));
+@@ -2839,15 +2842,8 @@
+ // row_h band with no_scroll (legacy minimal surface) — exactly the sizing
+ // draw_settings used to pick inline, now co-located with its own content.
+ void panel_video_draw(LauncherModel* m, const LauncherTheme* th) {
+-    // video_card_grows() folds in NES's legacy-surface additions (Integer
+-    // scaling row, HD texture pack block) alongside the deep/widescreen surfaces.
+-    if (video_card_grows(m)) {
+-        if (begin_panel("disp", 0, false)) draw_display_controls(m, *th);
+-        end_panel();
+-    } else {
+-        if (begin_panel("disp", 0, true, /*no_scroll*/true)) draw_display_controls(m, *th);
+-        end_panel();
+-    }
++    if (begin_panel("disp", 0, false)) fzero_launcher_display(m, *th);
++    end_panel();
+ }
+ 
+ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
+@@ -3316,7 +3312,7 @@
+     }
+ }
+ void panel_hotkeys_draw(LauncherModel* m, const LauncherTheme* th) {
+-    if (begin_panel("hotkeys", 0)) draw_hotkeys_controls(m, *th);
++    if (begin_panel("hotkeys", 0)) fzero_launcher_hotkeys(m, *th);
+     end_panel();
+ }
+ 
+@@ -3344,7 +3340,7 @@
+                                       // universal Fullscreen row joined scale/
+                                       // filter/widescreen on the legacy surface)
+ 
+-    const bool deep_display = video_card_grows(m);   // superset of any_deep_display: folds in NES + widescreen (N64 covered too)
++    const bool deep_display = true; // Fit all seven F-Zero Display rows.
+     const bool deep_audio   = m->has_spu_hq || m->num_languages > 0 || m->num_audio_devices > 0;   /* deadzone moved to controller card */
+ 
+     const LauncherPanel* video_p   = find_composed(prof->panels_settings, "video", m);
+@@ -3696,7 +3692,7 @@
+         row_label("Input source", th);
+         ImGui::SetNextItemWidth(px(200));
+         if (ImGui::BeginCombo("##csrc", ui_text(launcher_model_player_src_label(m, p)))) {
+-            draw_source_selectables(m, p);
++            fzero_launcher_source(m, p);
+             ImGui::EndCombo();
+         }
+         if (cfg_psx) {
+@@ -3991,6 +3987,11 @@
+     // input.cfg): GameInfo.hide_rebind drops the bindings card entirely and the
+     // Controller view is source+deadzone only.
+     if (m->hide_rebind) return;
++    if (m->s.player_src[p] != 1) {
++        if (m->s.player_src[p] == 2)
++            ImGui::TextWrapped("Uses the first connected gamepad with standard SNES button positions. Button remapping is available for Keyboard.");
++        return;
++    }
+ 
+     if (begin_panel("cfg_binds", 0)) {
+         // Responsive grid: fit as many label+chip columns as the width allows
+@@ -4269,7 +4270,7 @@
+         // A pad-bind console (Genesis) offers a KEY chip AND a GAMEPAD chip per
+         // row — the legacy launcher's "Set key" / "Set pad" pair. Otherwise the
+         // grid is keyboard-only, exactly as before.
+-        const bool has_pad = spec.has_pad_binds != 0 || settings_player_binds;
++        const bool has_pad = false; /* The host reads keyboard bindings only. */
+ 
+         // When the player's source is a gamepad the N64 store captures pad
+         // fields, not keys — reflect that in the card title and the capture
