@@ -59,7 +59,7 @@ static void CheckWideSprites(void) {
     for (int tile = 0; tile < 256; ++tile)
         for (int row = 0; row < 8; ++row)
             ppu.vram[tile * 16 + row] = (0x81u >> (row % 3)) ^ (tile & 0xff);
-    const int slots[] = {68, 75, 115, 116, 125};
+    const int slots[] = {68, 75, 115, 116, 125, 126, 127};
     for (unsigned s = 0; s < sizeof(slots) / sizeof(slots[0]); ++s) {
         int slot = slots[s];
         for (int large = 0; large < 2; ++large)
@@ -104,7 +104,7 @@ static void CheckWideSprites(void) {
     }
     /* No HUD or other unclassified slot can appear on either side. */
     for (int slot = 0; slot < 128; ++slot) {
-        if (slot >= 68 && slot < 126) continue;
+        if (slot >= 68) continue;
         for (int side = 0; side < 2; ++side) {
             SetSprite(slot, side ? 256 : -8, 100, true, 0x3800);
             CheckAt(true, 104);
@@ -221,6 +221,29 @@ static void CheckMovedHud(void) {
         SetSprite(slot,256,240,false,0);
     }
     SetSprite(47,256,240,false,0);
+    /* Racing uploads use the tail slots for shadows. They must stay under
+     * the car on either side, including while another HUD piece is moved. */
+    for(int slot=126;slot<128;++slot) for(int side=0;side<2;++side) {
+        int x=side?144:88;
+        ppu.cgram[161]=0;
+        SetSprite(slot,x,100,false,0x3400);
+        CheckAt(true,104);
+        for(int px=0;px<8;++px) {
+            CHECK(!layers.hud[103][x+px]);
+            CHECK(!layers.wide_hud[103][x+FZERO_WIDE_MARGIN+px]);
+            CHECK(layers.wide_world[103][x+FZERO_WIDE_MARGIN+px]==0);
+            CHECK(!layers.wide_hud[103][x+(side?2*FZERO_WIDE_MARGIN:0)+px]);
+        }
+        /* A full native upload can reuse the same slots for counters. */
+        layers.native_oam=true;
+        CheckPolicy(true,false,104);
+        CHECK(layers.wide_hud[103][x+(side?2*FZERO_WIDE_MARGIN:0)]==0xff000000u);
+        CHECK(layers.wide_hud[103][x+FZERO_WIDE_MARGIN]==0xffff0000u);
+        layers.native_oam=false;
+        CheckAt(true,104);
+        CHECK(!layers.wide_hud[103][x+(side?2*FZERO_WIDE_MARGIN:0)]);
+        SetSprite(slot,256,240,false,0);
+    }
     /* A full native effect keeps every scene pixel protected while the
      * instruments retain their wide positions, including during a fade. */
     layers.native_oam=true;
@@ -344,11 +367,15 @@ static void CheckTextFilters(bool results) {
         ppu.screenEnabled[0]=0x10; layers.native_oam=false;
         SetSprite(60,64,80,false,0x3030);
         SetSprite(68,96,80,false,0x3030);
+        SetSprite(126,144,80,false,0x3030);
+        SetSprite(127,160,80,false,0x3030);
         for(int mode=1;mode<=7;mode+=6) {
             ppu.bgmode=mode;
             CheckPolicy(true,false,84);
             CHECK(layers.hud[83][64]==0xff00ff00u);
             CHECK(!layers.hud[83][96] && layers.world[83][96]==0x00ff00);
+            CHECK(!layers.hud[83][144] && layers.world[83][144]==0x00ff00);
+            CHECK(!layers.hud[83][160] && layers.world[83][160]==0x00ff00);
             CHECK(!layers.hud[83][180] && !layers.wide_hud[83][0]);
         }
     }
@@ -408,13 +435,15 @@ int main(void) {
     ppu.screenEnabled[0] = 0x11; ppu.bgXsc[0] = 8;
     for (int i = 0; i < 1024; ++i) ppu.vram[0x800 + i] = 0x2000;
     CheckLine(true); CHECK(!layers.hud[0][0]);
-    /* Tail counter capture, then removal on the next frame. */
+    /* Tail counter capture in a native upload, then removal on the next frame. */
     ppu.screenEnabled[0] = 0x10;
     ppu.oam[22 * 2] = ppu.oam[68 * 2] = 0xf000;
     ppu.oam[126 * 2] = 0; ppu.oam[126 * 2 + 1] = 0x30;
+    layers.native_oam=true;
     CheckLine(true); CHECK(layers.hud[0][0] == 0xff0000ff);
     ppu.oam[126 * 2] = 0xf000;
     CheckLine(true); CHECK(!layers.hud[0][0]);
+    layers.native_oam=false;
     /* The power window protects even black pixels, only inside its bounds. */
     ppu.cgram[0] = 0;
     CheckAt(true, 20);

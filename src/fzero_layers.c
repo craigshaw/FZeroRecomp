@@ -43,7 +43,9 @@ static void CaptureHudSprites(FZeroLayers *layers, const Ppu *ppu, int line,
     CaptureSprites(layers,ppu,line,first,47-first,mask);
     CaptureSprites(layers,ppu,line,47,1,spark);
     CaptureSprites(layers,ppu,line,48,4,later);
-    CaptureSprites(layers,ppu,line,126,2,later);
+    /* Racing uploads use the entire tail for shadows. Only full native
+     * uploads can put counters in the final two slots. */
+    if(layers->native_oam) CaptureSprites(layers,ppu,line,126,2,later);
     for(int x=0;x<256;++x) mask[x] |= later[x] && !spark[x];
 }
 
@@ -83,8 +85,8 @@ static void ExtendPanorama(Ppu *copy, const Ppu *ppu, int line, int layer, bool 
 }
 
 /* The racing OAM layout assigns six eight-piece vehicle groups to 68..115,
- * followed by shadows. The final two slots also carry counters, so retain
- * those in the native view. Hints distinguish right-side pieces from the
+ * followed by shadows through slot 127. Full native uploads have a separate
+ * side-rendering path. Hints distinguish right-side pieces from the
  * hardware's signed, nine-bit offscreen coordinates. */
 static void ExtendVehicleSprites(Ppu *copy) {
     uint8_t hints[16] = {0};
@@ -92,7 +94,7 @@ static void ExtendVehicleSprites(Ppu *copy) {
         int index = slot * 2;
         int shift = index & 7;
         unsigned high = (copy->highOam[index >> 3] >> shift) & 3;
-        bool vehicle = slot >= 68 && slot < 126;
+        bool vehicle = slot >= 68;
         /* Empty vehicle and shadow entries use this parked coordinate.
          * A large sprite there could otherwise reach the far left margin. */
         bool parked = copy->oam[index] == 0x8080 && (high & 1);
@@ -207,7 +209,7 @@ static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool prot
     copy->renderPitch=sizeof(layers->capture[0]);
     PpuClearOverlayBindings(copy);
     for(unsigned slot=20;slot<52;++slot) if(slot!=47) HideHudSlot(copy,slot);
-    HideHudSlot(copy,126); HideHudSlot(copy,127);
+    if(layers->native_oam) { HideHudSlot(copy,126); HideHudSlot(copy,127); }
     if(top) {
         copy->screenEnabled[0] &= ~4;
         copy->screenEnabled[1] &= ~4;
@@ -254,13 +256,12 @@ void FZeroLayersProcessLine(FZeroLayers *layers, const Ppu *ppu, int line,
          * These layouts do not use the racing power-window mask. */
         if (!layers->native_oam) {
             CaptureSprites(layers, ppu, line, 0, 68, mask);
-            CaptureSprites(layers, ppu, line, 126, 2, mask);
         }
         for (int x = 0; x < FZERO_LAYER_WIDTH; ++x)
             mask[x] |= TextOverlayPixel(ppu, x, layers->native_oam);
     } else if (supported && hud_layout) {
         /* Racing messages, map, times and counters. Exhaust, sparks, vehicles
-         * and shadows remain in the scene. Tail counter slots are separate. */
+         * and all twelve shadow slots remain in the scene. */
         CaptureHudSprites(layers, ppu, line, 0, mask);
         for (int x = 0; x < FZERO_LAYER_WIDTH; ++x) {
             unsigned layer = (ppu->bgBuffers[0].data[x + kPpuExtraLeftRight] >> 8) & 15;

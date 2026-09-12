@@ -58,6 +58,8 @@ and native sprite limits are unchanged.
   math. Restore the scene beneath old instrument positions before placing the
   instruments at the wider edges. Keep messages and repair sprites centred;
   exclude slide sparks from HUD capture. Preserve opaque black power-bar fill.
+  Treat sprite slots 126 and 127 as shadows in racing uploads; their counter
+  role applies only to full native uploads.
 
 | Layout | Wide view | Colour and HUD policy |
 | --- | --- | --- |
