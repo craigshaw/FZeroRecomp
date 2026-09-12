@@ -728,7 +728,8 @@ int main(int argc, char **argv) {
       if (was_open != FZeroRuntimeUiIsOpen(g_runtime_ui))
         blocked_input |= ReadInput(&settings);
       if (consumed) {
-        blocked_input |= ReadInput(&settings);
+        /* Gameplay shortcuts such as F12 must not suppress held controls.
+         * Menu transitions above still require release before resuming. */
         continue;
       }
       if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
