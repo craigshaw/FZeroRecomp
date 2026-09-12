@@ -43,13 +43,12 @@ The launcher also accepts the same payload with a 512-byte copier header.
 ## Download and install
 
 The [0.2.0 release](https://github.com/craigshaw/FZeroRecomp/releases/tag/v0.2.0)
-is available for macOS. The Windows 0.2.0 build will follow; the previous
-Windows release remains linked below. Both downloads bundle SDL; no compiler
+is available for Windows and macOS. Both downloads bundle SDL; no compiler
 or code generation is needed to play. You supply your own F-Zero (USA) ROM.
 
 | Platform | Download | Requirements |
 | --- | --- | --- |
-| Windows | [Windows x64 ZIP (0.1.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.1.0/FZeroRecomp-v0.1.0-Windows-x64.zip) | Windows 10/11 x64; Direct3D 12 with Shader Model 6.0 for visual filters |
+| Windows | [Windows x64 ZIP (0.2.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.2.0/FZeroRecomp-v0.2.0-Windows-x64.zip) | Windows 10/11 x64; Direct3D 12 with Shader Model 6.0 for visual filters |
 | macOS | [Apple Silicon ZIP (0.2.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.2.0/FZeroRecomp-v0.2.0-macOS-arm64.zip) | Apple Silicon (M1 or newer), macOS 13 or newer; Intel Macs are not supported |
 
 ### Windows
@@ -66,7 +65,9 @@ cannot run the filters, the game uses Original colours and still supports widesc
 Settings and saves live beside the executable: `config.ini`, `keybinds.ini`,
 `rom.cfg`, and `saves/save.srm`. Keep that folder writable. To update, quit the
 game, back up these files, and replace the program files with the new download
-while preserving your settings and `saves/` folder.
+while preserving your settings, `saves/`, and `screenshots/` folders. Existing
+settings take precedence over the new first-boot defaults. The release includes
+a `.zip.sha256` checksum file for each download.
 
 ### macOS
 
