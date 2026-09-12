@@ -4,9 +4,9 @@
 
 static inline bool FZeroSceneTitle(const uint8_t *ram) {
     if (!ram || ram[0x5c] != 1 || ram[0x81] != 1) return false;
-    /* Selection changes the menu state before the title backdrop fades out.
-     * Keep that loaded scene wide until its projection is cleared. */
-    return (ram[0x54] == 0 && ram[0x55] <= 1) ||
+    /* Records and race selection change the menu state before the title
+     * backdrop fades out. Keep it wide until its projection is cleared. */
+    return (ram[0x54] == 0 && ram[0x55] <= 2) ||
         (ram[0x54] == 1 && ram[0x55] == 0);
 }
 

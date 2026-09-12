@@ -143,11 +143,11 @@ static void CheckSceneTransitions(void) {
     g_ram[0x5c]=0; CHECK(!FZeroSceneWide(g_ram));
     CHECK(!FZeroSceneWide(NULL));
     /* Title expansion begins only once its course projection is installed.
-     * Menu pages with another process or scene remain protected. */
+     * The Records fade retains it; the loaded Records page does not. */
     memset(g_ram,0,sizeof(g_ram));
     CHECK(!FZeroSceneTitle(g_ram));
     g_ram[0x5c]=1; g_ram[0x81]=1;
-    for(int process=0;process<=1;++process) {
+    for(int process=0;process<=2;++process) {
         g_ram[0x55]=process;
         CHECK(FZeroSceneTitle(g_ram) && FZeroSceneWide(g_ram));
         prepared=0; expected_wide=true; expected_hud=false;
@@ -155,7 +155,10 @@ static void CheckSceneTransitions(void) {
         CHECK(!layers.move_hud && layers.native_oam);
         g_ram[0x5c]=1; g_ram[0x81]=1;
     }
-    g_ram[0x55]=2; CHECK(!FZeroSceneWide(g_ram));
+    g_ram[0x55]=3; CHECK(!FZeroSceneWide(g_ram));
+    g_ram[0x55]=2; g_ram[0x81]=0; CHECK(!FZeroSceneWide(g_ram));
+    g_ram[0x81]=1; g_ram[0x5c]=0; CHECK(!FZeroSceneWide(g_ram));
+    g_ram[0x5c]=1;
     g_ram[0x55]=1; g_ram[0x81]=0; CHECK(!FZeroSceneWide(g_ram));
     /* The title still owns the backdrop during selection's initial fade.
      * Keep the pending upload wide, then reject the unloaded/menu layout. */
