@@ -42,14 +42,15 @@ The launcher also accepts the same payload with a 512-byte copier header.
 
 ## Download and install
 
-The [0.1.0 release](https://github.com/craigshaw/FZeroRecomp/releases/tag/v0.1.0)
-includes these downloads. Both bundle SDL; no compiler or code generation is
-needed to play. You supply your own F-Zero (USA) ROM.
+The [0.2.0 release](https://github.com/craigshaw/FZeroRecomp/releases/tag/v0.2.0)
+is available for macOS. The Windows 0.2.0 build will follow; the previous
+Windows release remains linked below. Both downloads bundle SDL; no compiler
+or code generation is needed to play. You supply your own F-Zero (USA) ROM.
 
 | Platform | Download | Requirements |
 | --- | --- | --- |
-| Windows | [Windows x64 ZIP](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.1.0/FZeroRecomp-v0.1.0-Windows-x64.zip) | Windows 10/11 x64; Direct3D 12 with Shader Model 6.0 for visual filters |
-| macOS | [Apple Silicon ZIP](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.1.0/FZeroRecomp-v0.1.0-macOS-arm64.zip) | Apple Silicon (M1 or newer), macOS 13 or newer; Intel Macs are not supported |
+| Windows | [Windows x64 ZIP (0.1.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.1.0/FZeroRecomp-v0.1.0-Windows-x64.zip) | Windows 10/11 x64; Direct3D 12 with Shader Model 6.0 for visual filters |
+| macOS | [Apple Silicon ZIP (0.2.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.2.0/FZeroRecomp-v0.2.0-macOS-arm64.zip) | Apple Silicon (M1 or newer), macOS 13 or newer; Intel Macs are not supported |
 
 ### Windows
 
@@ -69,7 +70,7 @@ while preserving your settings and `saves/` folder.
 
 ### macOS
 
-1. Download `FZeroRecomp-v0.1.0-macOS-arm64.zip` from the release's **Assets**.
+1. Download `FZeroRecomp-v0.2.0-macOS-arm64.zip` from the release's **Assets**.
 2. Extract the ZIP and drag **F-Zero Recomp.app** into **Applications**.
 3. Open the app, select your F-Zero (USA) ROM, and press **Play**.
 
@@ -142,14 +143,14 @@ Dependency caches stay under ignored `.tools/` and build directories.
 After building, run:
 
 ```powershell
-python tools/package_windows.py --version 0.1.0
+python tools/package_windows.py --version 0.2.0
 ```
 
 The packager runs CTest and GPU presentation checks (brief test windows appear),
 stages only program files and notices, resolves x64 SDL/Visual C++ runtime
 dependencies, and tests ROM rejection with a clean PATH. A GPU supporting the
 filter path is required on the packaging machine. The ZIP and SHA-256 file are
-written under `build-release/v0.1.0-windows-x64/`. Existing output is never
+written under `build-release/v0.2.0-windows-x64/`. Existing output is never
 overwritten; use `--output` to select a new directory for a subsequent build.
 
 To play, extract the entire ZIP to a writable folder and open
@@ -213,7 +214,7 @@ SDL3, install its development files and set `SDL3_DIR` to the folder containing
 
 See [architecture](docs/ARCHITECTURE.md) and [dependency patches](docs/SNESRECOMP_PATCHES.md).
 After generation, maintainers can build the Mac release with
-`python3 tools/package_macos.py --version 0.1.0`. This downloads and verifies
+`python3 tools/package_macos.py --version 0.2.0`. This downloads and verifies
 SDL source, builds it for macOS 13, runs CTest, and writes the app, ZIP, and
 checksum under `build-release/`.
 
