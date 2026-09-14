@@ -62,7 +62,10 @@ and native sprite limits are unchanged.
   instruments at the wider edges. Keep messages and repair sprites centred;
   exclude slide sparks from HUD capture. Preserve opaque black power-bar fill.
   Treat sprite slots 126 and 127 as shadows in racing uploads; their counter
-  role applies only to full native uploads.
+  role applies only to full native uploads. During the GP ending transition,
+  keep the map, markers, lives and boost indicators at the wide edges. Below
+  the top band, check both sprite slot and corner position because the results
+  table later reuses the same slots for centred lettering.
 
 | Layout | Wide view | Colour and HUD policy |
 | --- | --- | --- |
@@ -70,7 +73,7 @@ and native sprite limits are unchanged.
 | Course intro and countdown | Extended course and backdrop | Selected style from the first visible intro frame; protected intro lettering, then racing HUD |
 | Recognised crash, finish, and loss | Wide while the racing layout remains valid | Instruments stay wide; full native effects retain Original colours |
 | Race results | Extended backdrop | Selected style; protected result lettering; text stays centred |
-| GP ending camera | Extended backdrop and racing vehicles | Selected style; protected result lettering; text stays centred |
+| GP ending camera | Extended backdrop and racing vehicles | Selected style; corner instruments at wider edges; protected results table stays centred |
 | Title | Extended backdrop | Original colours; title text stays centred |
 | Unrecognised layout or unsupported render mode | Native view | Original colours |
 

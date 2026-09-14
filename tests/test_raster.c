@@ -127,7 +127,8 @@ static void CheckSceneTransitions(void) {
         CHECK(layers.wide_scene==expected_wide && layers.hud_layout==expected_hud);
         CHECK(layers.native_oam==!cases[i].obj);
         CHECK(layers.move_hud==(cases[i].hud || (cases[i].wide &&
-              cases[i].mode==2 && cases[i].exception==0x40)));
+              cases[i].mode==2 && (cases[i].exception==0x40 ||
+              (cases[i].exception==0x11 && cases[i].obj)))));
         CHECK(layers.intro_panorama==(cases[i].mode==2 && cases[i].process<=1));
         CHECK(layers.results_layout==(cases[i].wide &&
               (cases[i].mode==3 || (cases[i].mode==2 && cases[i].exception==0x11))));

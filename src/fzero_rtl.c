@@ -74,11 +74,13 @@ void FZeroRunOneFrameOfGame(void) {
       g_layers->hud_layout = g_layers->wide_scene && !g_layers->native_oam &&
           !g_layers->intro_panorama && !FZeroSceneTitle(g_ram) &&
           !FZeroSceneResults(g_ram) && g_ram[0xc3] != 0x11;
-      /* Finish/loss cameras retain the instruments. The explosion changes
-       * upload mode but keeps those slots too; its full-width colour
-       * protection is independent of where the HUD is placed. */
+      /* Finish/loss and GP ending cameras retain the instruments. The
+       * explosion changes upload mode but keeps those slots too; its
+       * full-width colour protection is independent of HUD placement. */
       g_layers->move_hud = g_layers->hud_layout ||
-          (g_layers->wide_scene && g_ram[0x54] == 2 && g_ram[0xc3] == 0x40);
+          (g_layers->wide_scene && g_ram[0x54] == 2 &&
+           (g_ram[0xc3] == 0x40 ||
+            (g_ram[0xc3] == 0x11 && !g_layers->native_oam)));
       FZeroVehiclesPrepare(&g_layers->vehicles, g_ram, g_rom, 0x80000);
     }
     if (g_layers) FZeroGroundPrepare(&g_layers->ground, g_ram);

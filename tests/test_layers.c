@@ -324,6 +324,79 @@ static void CheckMovedHud(void) {
     layers.move_hud=false;
 }
 
+static void CheckGpEndingHud(void) {
+    memset(&layers,0,sizeof(layers));
+    ppu_reset(&ppu);
+    PpuBeginDrawing(&ppu,(uint8_t*)original,sizeof(original[0]),kPpuRenderFlags_NewRenderer);
+    ppu.inidisp=15; ppu.bgmode=1; ppu.screenEnabled[0]=0x10;
+    ppu.cgram[0]=0x001f; ppu.cgram[129]=0x03e0; ppu.cgram[145]=0x7c00;
+    for(int slot=0;slot<128;++slot) SetSprite(slot,256,240,false,0);
+    for(int row=0;row<8;++row) ppu.vram[row]=0xff;
+    SetSprite(24,24,8,false,0x3000);
+    SetSprite(32,220,8,false,0x3000);
+    SetSprite(68,24,8,false,0x3200);
+    /* Result rows can reuse slots that contain instruments during a race. */
+    SetSprite(40,64,80,false,0x3000);
+    SetSprite(0,120,80,false,0x3000);
+    layers.results_layout=true; layers.move_hud=true;
+    CheckPolicy(true,false,12);
+    CHECK(layers.wide_hud[11][24]==0xff00ff00u);
+    CHECK(layers.wide_hud[11][220+2*FZERO_WIDE_MARGIN]==0xff00ff00u);
+    CHECK(!layers.wide_hud[11][24+FZERO_WIDE_MARGIN]);
+    CHECK(layers.wide_world[11][24+FZERO_WIDE_MARGIN]==0x0000ff);
+    CHECK(!layers.wide_hud[11][220+FZERO_WIDE_MARGIN]);
+    CHECK(layers.wide_world[11][220+FZERO_WIDE_MARGIN]==0xff0000);
+    for(int mode=1;mode<=7;mode+=6)
+        for(int row=48;row<=80;row+=32) {
+            ppu.bgmode=mode;
+            SetSprite(40,64,row,false,0x3000);
+            SetSprite(0,120,row,false,0x3000);
+            CheckPolicy(true,false,row+4);
+            CHECK(layers.wide_hud[row+3][64+FZERO_WIDE_MARGIN]==0xff00ff00u);
+            CHECK(layers.wide_hud[row+3][120+FZERO_WIDE_MARGIN]==0xff00ff00u);
+            CHECK(!layers.wide_hud[row+3][64]);
+        }
+    /* The ending transition still has the racing map, markers, lives and
+     * boost icons. Their slots later hold the centred results table. */
+    const int corner_slots[]={20,21,22,23,24,25,26,27,28,29,30,31,44,45,46};
+    ppu.bgmode=7;
+    for(unsigned i=0;i<sizeof(corner_slots)/sizeof(corner_slots[0]);++i) {
+        int slot=corner_slots[i];
+        int x=(slot==22 || slot==23 || slot>=44)?216:24;
+        for(int s=0;s<128;++s) SetSprite(s,256,240,false,0);
+        SetSprite(slot,x,192,false,0x3000);
+        SetSprite(68,x,192,false,0x3200);
+        SetSprite(0,96,192,false,0x3000);
+        CheckPolicy(true,false,196);
+        int destination=x+(x<128?0:2*FZERO_WIDE_MARGIN);
+        CHECK(layers.wide_hud[195][destination]==0xff00ff00u);
+        CHECK(!layers.wide_hud[195][x+FZERO_WIDE_MARGIN]);
+        CHECK(layers.wide_world[195][x+FZERO_WIDE_MARGIN]==0x0000ff);
+        CHECK(layers.wide_hud[195][96+FZERO_WIDE_MARGIN]==0xff00ff00u);
+        /* Reuse the same slot for results lettering. Even a low table row
+         * must stay centred, rather than inheriting the old instrument move. */
+        SetSprite(slot,112,192,false,0x3000);
+        CheckPolicy(true,false,196);
+        CHECK(layers.wide_hud[195][112+FZERO_WIDE_MARGIN]==0xff00ff00u);
+        CHECK(!layers.wide_hud[195][112]);
+    }
+    /* The colour-window meter moves with its opaque fill. The uncovered sky
+     * remains filterable, including when the fill is black. */
+    ppu.bgmode=1; ppu.screenEnabled[0]=0; ppu.windowsel=0x200000;
+    ppu.window1left=180; ppu.window1right=230;
+    ppu.cgwsel=0x90; ppu.cgadsub=0x20;
+    for(int colour=0;colour<2;++colour) {
+        ppu.fixedColor=colour?0x03e0:0;
+        CheckPolicy(true,false,20);
+        CHECK(layers.hud[19][190]==(colour?0xff00ff00u:0xff000000u));
+        CHECK(layers.wide_hud[19][190+2*FZERO_WIDE_MARGIN]==
+              (colour?0xff00ff00u:0xff000000u));
+        CHECK(!layers.wide_hud[19][190+FZERO_WIDE_MARGIN]);
+        CHECK(layers.wide_world[19][190+FZERO_WIDE_MARGIN]==0xff0000);
+    }
+    memset(&layers,0,sizeof(layers));
+}
+
 void TestVehicles(void);
 void TestGround(void);
 
@@ -566,6 +639,7 @@ int main(void) {
     CheckMovedHud();
     CheckTextFilters(false);
     CheckTextFilters(true);
+    CheckGpEndingHud();
     TestVehicles();
     TestGround();
     puts("layer extraction tests: passed");

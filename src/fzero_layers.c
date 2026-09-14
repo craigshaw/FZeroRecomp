@@ -186,9 +186,29 @@ static void HideHudSlot(Ppu *copy, unsigned slot) {
  * separate slots and retain their original positions and colour protection. */
 static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool protect_scene) {
     int y=line-1;
+    bool gp_bottom=layers->results_layout && y>=48;
+    bool slots[52]={0};
+    for(unsigned slot=20;slot<52;++slot) {
+        int x=ppu->oam[slot*2]&255;
+        if(ppu->highOam[slot/4] & (1u<<((slot&3)*2))) x-=256;
+        /* The ending first retains the map, markers and counters, then
+         * reuses their slots for the central results table. Racing corner
+         * groups start outside x=48..183; results lettering stays inside. */
+        slots[slot]=slot!=47 && (!gp_bottom || x<48 || x>=184);
+    }
     bool move[256]={0}, centred[256]={0};
     CaptureSprites(layers,ppu,line,0,20,centred);
-    CaptureHudSprites(layers,ppu,line,20,move);
+    if(gp_bottom) {
+        /* Capture and remove the same selected groups. Keep result lettering
+         * in the clean scene beneath an instrument, including equal colours. */
+        for(int first=20;first<52;) {
+            int end=first+1;
+            while(end<52 && slots[end]==slots[first]) ++end;
+            CaptureSprites(layers,ppu,line,first,end-first,slots[first]?move:centred);
+            first=end;
+        }
+        CaptureSprites(layers,ppu,line,52,16,centred);
+    } else CaptureHudSprites(layers,ppu,line,20,move);
     bool top=y<48 && PPU_mode(ppu)==1;
     bool power_band=top && y>=18 && y<30;
     bool power_math=power_band && y<28;
@@ -208,7 +228,7 @@ static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool prot
     copy->renderBuffer=(uint8_t*)layers->capture;
     copy->renderPitch=sizeof(layers->capture[0]);
     PpuClearOverlayBindings(copy);
-    for(unsigned slot=20;slot<52;++slot) if(slot!=47) HideHudSlot(copy,slot);
+    for(unsigned slot=20;slot<52;++slot) if(slots[slot]) HideHudSlot(copy,slot);
     if(layers->native_oam) { HideHudSlot(copy,126); HideHudSlot(copy,127); }
     if(top) {
         copy->screenEnabled[0] &= ~4;
@@ -253,12 +273,14 @@ void FZeroLayersProcessLine(FZeroLayers *layers, const Ppu *ppu, int line,
     if (supported && text_layout) {
         /* Keep the selected filter through intro and results. The GP ending
          * retains racing vehicles; protect its text slots but not those cars.
-         * These layouts do not use the racing power-window mask. */
+         * Only the GP ending retains the racing power-window mask. */
         if (!layers->native_oam) {
             CaptureSprites(layers, ppu, line, 0, 68, mask);
         }
         for (int x = 0; x < FZERO_LAYER_WIDTH; ++x)
             mask[x] |= TextOverlayPixel(ppu, x, layers->native_oam);
+        if (layers->move_hud && PPU_mode(ppu) == 1 && y >= 18 && y < 30)
+            for (int x = 174; x < 242; ++x) mask[x] = true;
     } else if (supported && hud_layout) {
         /* Racing messages, map, times and counters. Exhaust, sparks, vehicles
          * and all twelve shadow slots remain in the scene. */
@@ -282,7 +304,8 @@ void FZeroLayersProcessLine(FZeroLayers *layers, const Ppu *ppu, int line,
         pixels += mask[x];
     }
     BuildWideLine(layers, ppu, line, supported, hud_layout);
-    if(supported && layers->move_hud) MoveWideHud(layers,ppu,line,!hud_layout);
+    if(supported && layers->move_hud)
+        MoveWideHud(layers,ppu,line,!hud_layout && !text_layout);
     if (supported && (hud_layout || text_layout) && pixels) ++layers->extracted_lines;
     layers->hud_pixels += pixels;
 }
