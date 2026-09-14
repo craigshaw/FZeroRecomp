@@ -348,6 +348,18 @@ static void CheckNativeCounters(void) {
         CHECK(layers.wide_hud[195][24+FZERO_WIDE_MARGIN]==0xff00ff00u);
         CHECK(layers.wide_hud[195][112+FZERO_WIDE_MARGIN]==0xff00ff00u);
         CHECK(!layers.wide_hud[195][24]);
+        /* Practice course selection reuses all eight tail slots for a map.
+         * Its last two pieces are not lives and must stay with the others. */
+        SetSprite(125,24,192,false,0x3000);
+        SetSprite(126,24,200,false,0x3000);
+        SetSprite(127,32,200,false,0x3000);
+        CheckPolicy(true,false,204);
+        CHECK(layers.wide_hud[203][24+FZERO_WIDE_MARGIN]==0xff00ff00u);
+        CHECK(layers.wide_hud[203][32+FZERO_WIDE_MARGIN]==0xff00ff00u);
+        CHECK(!layers.wide_hud[203][24] && !layers.wide_hud[203][32]);
+        SetSprite(125,256,240,false,0);
+        SetSprite(126,208,192,false,0x3000);
+        SetSprite(127,232,192,false,0x3000);
         /* BG3 lettering uncovered by the moved lives icon keeps its colour
          * protection at the original position. */
         ppu.screenEnabled[0]=0x14; ppu.bgXsc[2]=4; ppu.cgram[1]=0x7c00;
@@ -384,11 +396,13 @@ static void CheckCrashFilter(void) {
     for(int row=0;row<8;++row) ppu.vram[row]=0xff;
     layers.native_oam=true; layers.move_hud=true;
     layers.crash_layout=true;
-    /* Full-upload explosion and smoke pieces reuse the old rank slots and
-     * the OAM tail. They must stay in the filtered scene at their live position. */
+    /* Early and full-upload explosion pieces reuse the old rank slots.
+     * All pieces stay in the filtered scene at their live position. */
     const int effects[]={47,48,49,50,51,68,125,126,127};
+    for(int native=0;native<2;++native)
     for(unsigned i=0;i<sizeof(effects)/sizeof(effects[0]);++i)
     for(int brightness=15;brightness>=0;brightness-=5) {
+        layers.native_oam=native;
         for(int slot=0;slot<128;++slot) SetSprite(slot,256,240,false,0);
         SetSprite(0,120,96,false,0x3000); /* Centred message. */
         SetSprite(24,24,96,false,0x3000);

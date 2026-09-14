@@ -138,6 +138,18 @@ static void CheckSceneTransitions(void) {
         CHECK(layers.results_layout==(cases[i].wide &&
               (cases[i].mode==3 || (cases[i].mode==2 && cases[i].exception==0x11))));
     }
+    /* Explosion pieces replace rank slots before the upload mode changes.
+     * Preserve rank ownership before phase 7, then keep every effect in the
+     * scene through the early phases and the full-upload flash/smoke phases. */
+    for(unsigned counter=0;counter<=48;++counter) {
+        g_ram[0x54]=2; g_ram[0x55]=3; g_ram[0x5c]=1; g_ram[0x5f]=4;
+        g_ram[0xc3]=0x40; g_ram[0xcf]=counter; g_ram[0x50]=counter<19;
+        prepared=0; expected_wide=true; expected_hud=true;
+        FZeroRunOneFrameOfGame();
+        CHECK(layers.crash_layout==(counter>=7));
+        CHECK(layers.native_oam==(counter>=19));
+        CHECK(layers.move_hud && !g_ram[0xcf]); /* Paired with pre-NMI state. */
+    }
     /* Intro geometry does not require the racing HUD or final horizon split.
      * Free-practice results can also disable the racing meter. */
     g_ram[0x54]=2; g_ram[0x55]=0;

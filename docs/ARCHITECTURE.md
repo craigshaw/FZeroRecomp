@@ -65,12 +65,15 @@ and native sprite limits are unchanged.
   role applies only to full native uploads. During the GP ending transition,
   keep the map, markers, lives and boost indicators at the wide edges. Below
   the top band, check both sprite slot and corner position because the results
-  table later reuses the same slots for centred lettering. Full crash uploads
-  keep the scene filtered and retain HUD slots 0..46. Slots 48 onward become
-  explosion and smoke pieces, so they receive the scene filter and stay at
-  their live positions; the normal tail-counter rule does not apply.
-  Intro and standalone results uploads instead use slots 126..127 for lives.
-  Move those counters to the right edge and the results score in the upper-left
+  table later reuses the same slots for centred lettering. Crash animation
+  retains HUD slots 0..46 and reuses slots 48 onward for explosion and smoke.
+  This ownership starts at explosion counter 7, before the full native upload
+  at counter 19. Keep those pieces filtered and at their live positions from
+  the first explosion phase; the normal tail-counter rule does not apply.
+  Intro and standalone results uploads can use slots 126..127 for lives.
+  Recognise them only in the lower-right counter area: practice track selection
+  reuses slots 120..127 for its map, which must remain together in that layout.
+  Move recognised lives counters to the right edge and the results score in the upper-left
   BG3 band to the left edge. Keep other lettering centred, including text
   uncovered at an old counter position. These layouts have no racing power mask.
 

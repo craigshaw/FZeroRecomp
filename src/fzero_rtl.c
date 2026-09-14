@@ -71,8 +71,10 @@ void FZeroRunOneFrameOfGame(void) {
       g_layers->intro_panorama = FZeroSceneIntro(g_ram);
       g_layers->results_layout = FZeroSceneResults(g_ram) ||
           (g_layers->wide_scene && g_ram[0x54] == 2 && g_ram[0xc3] == 0x11);
-      g_layers->crash_layout = g_layers->wide_scene && g_layers->native_oam &&
-          g_ram[0x54] == 2 && g_ram[0xc3] == 0x40;
+      /* Rank slots become explosion pieces at counter 7. The full native
+       * upload starts later, so upload mode alone misses the first phases. */
+      g_layers->crash_layout = g_layers->wide_scene && g_ram[0x54] == 2 &&
+          g_ram[0xc3] == 0x40 && (g_layers->native_oam || g_ram[0xcf] >= 7);
       g_layers->hud_layout = g_layers->wide_scene &&
           (!g_layers->native_oam || g_layers->crash_layout) &&
           !g_layers->intro_panorama && !FZeroSceneTitle(g_ram) &&

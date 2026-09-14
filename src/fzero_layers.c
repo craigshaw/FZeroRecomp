@@ -41,7 +41,7 @@ static void CaptureHudSprites(FZeroLayers *layers, const Ppu *ppu, int line,
                                int first, bool *mask) {
     bool spark[256]={0}, later[256]={0};
     CaptureSprites(layers,ppu,line,first,47-first,mask);
-    /* Full crash uploads put explosion and smoke pieces in slots 48 onward,
+    /* Crash animation puts explosion and smoke pieces in slots 48 onward,
      * including the tail. Keep those pieces in the filtered scene. */
     if(layers->crash_layout) return;
     CaptureSprites(layers,ppu,line,47,1,spark);
@@ -202,12 +202,21 @@ static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool prot
         slots[slot]=slot!=47 && (!layers->crash_layout || slot<48) &&
             (!gp_bottom || x<48 || x>=184);
     }
+    bool tail[2]={layers->native_oam && !layers->crash_layout,
+                  layers->native_oam && !layers->crash_layout};
     bool move[256]={0}, centred[256]={0};
     if(native_text) {
         /* Intro, race results and the crashed-out page share a reduced HUD.
-         * Earlier slots contain centred lettering; only the tail holds lives. */
+         * Practice course selection instead uses the tail for map pieces.
+         * Only tail sprites in the lower-right counter area are lives. */
         CaptureSprites(layers,ppu,line,0,126,centred);
-        CaptureSprites(layers,ppu,line,126,2,move);
+        for(unsigned slot=126;slot<128;++slot) {
+            unsigned position=ppu->oam[slot*2];
+            unsigned x=position&255, y=position>>8;
+            bool offscreen=ppu->highOam[slot/4] & (1u<<((slot&3)*2));
+            tail[slot-126]=!offscreen && x>=192 && y>=184 && y<216;
+            CaptureSprites(layers,ppu,line,slot,1,tail[slot-126]?move:centred);
+        }
     } else CaptureSprites(layers,ppu,line,0,20,centred);
     if(gp_bottom) {
         /* Capture and remove the same selected groups. Keep result lettering
@@ -242,7 +251,8 @@ static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool prot
     PpuClearOverlayBindings(copy);
     if(!native_text)
         for(unsigned slot=20;slot<52;++slot) if(slots[slot]) HideHudSlot(copy,slot);
-    if(layers->native_oam && !layers->crash_layout) { HideHudSlot(copy,126); HideHudSlot(copy,127); }
+    for(unsigned slot=126;slot<128;++slot)
+        if(tail[slot-126]) HideHudSlot(copy,slot);
     if(top) {
         copy->screenEnabled[0] &= ~4;
         copy->screenEnabled[1] &= ~4;
