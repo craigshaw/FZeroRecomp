@@ -324,6 +324,44 @@ static void CheckMovedHud(void) {
     layers.move_hud=false;
 }
 
+static void CheckCrashFilter(void) {
+    memset(&layers,0,sizeof(layers));
+    ppu_reset(&ppu);
+    PpuBeginDrawing(&ppu,(uint8_t*)original,sizeof(original[0]),kPpuRenderFlags_NewRenderer);
+    ppu.bgmode=7; ppu.screenEnabled[0]=0x10;
+    ppu.cgram[0]=0x001f; ppu.cgram[129]=0x03e0; ppu.cgram[145]=0x7c00;
+    for(int row=0;row<8;++row) ppu.vram[row]=0xff;
+    layers.native_oam=true; layers.move_hud=true;
+    layers.crash_layout=true;
+    /* Full-upload explosion and smoke pieces reuse the old rank slots and
+     * the OAM tail. They must stay in the filtered scene at their live position. */
+    const int effects[]={47,48,49,50,51,68,125,126,127};
+    for(unsigned i=0;i<sizeof(effects)/sizeof(effects[0]);++i)
+    for(int brightness=15;brightness>=0;brightness-=5) {
+        for(int slot=0;slot<128;++slot) SetSprite(slot,256,240,false,0);
+        SetSprite(0,120,96,false,0x3000); /* Centred message. */
+        SetSprite(24,24,96,false,0x3000);
+        SetSprite(32,220,96,false,0x3000);
+        SetSprite(effects[i],24,96,false,0x3200); /* Effect below moved HUD. */
+        ppu.inidisp=brightness;
+        CheckPolicy(true,true,100);
+        uint32_t channel=brightness*17;
+        CHECK(layers.hud[99][120]==(0xff000000u|channel<<8));
+        CHECK(layers.wide_hud[99][24]==(0xff000000u|channel<<8));
+        CHECK(!layers.wide_hud[99][24+FZERO_WIDE_MARGIN]);
+        CHECK(layers.wide_world[99][24+FZERO_WIDE_MARGIN]==channel);
+        SetSprite(effects[i],80,96,false,0x3200);
+        CheckPolicy(true,true,100);
+        CHECK(!layers.hud[99][80] && layers.world[99][80]==channel);
+        CHECK(!layers.wide_hud[99][80+FZERO_WIDE_MARGIN]);
+        CHECK(layers.wide_world[99][80+FZERO_WIDE_MARGIN]==channel);
+        CHECK(!layers.wide_hud[99][80]);
+        CHECK(!layers.wide_hud[99][0]);
+        CHECK(layers.wide_world[99][0]==channel<<16);
+    }
+    memset(&layers,0,sizeof(layers));
+}
+
 static void CheckGpEndingHud(void) {
     memset(&layers,0,sizeof(layers));
     ppu_reset(&ppu);
@@ -640,6 +678,7 @@ int main(void) {
     CheckTextFilters(false);
     CheckTextFilters(true);
     CheckGpEndingHud();
+    CheckCrashFilter();
     TestVehicles();
     TestGround();
     puts("layer extraction tests: passed");

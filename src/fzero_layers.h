@@ -19,6 +19,8 @@ typedef struct FZeroLayers {
     FZeroGround ground;
     /* Policy for the pending upload, captured with vehicles and ground. */
     bool wide_scene, hud_layout, native_oam, intro_panorama, results_layout;
+    /* Full crash uploads reuse the rank and tail slots for scene effects. */
+    bool crash_layout;
     /* Instrument placement is independent of selective scene effects. */
     bool move_hud;
     unsigned long wide_lines;

@@ -65,13 +65,17 @@ and native sprite limits are unchanged.
   role applies only to full native uploads. During the GP ending transition,
   keep the map, markers, lives and boost indicators at the wide edges. Below
   the top band, check both sprite slot and corner position because the results
-  table later reuses the same slots for centred lettering.
+  table later reuses the same slots for centred lettering. Full crash uploads
+  keep the scene filtered and retain HUD slots 0..46. Slots 48 onward become
+  explosion and smoke pieces, so they receive the scene filter and stay at
+  their live positions; the normal tail-counter rule does not apply.
 
 | Layout | Wide view | Colour and HUD policy |
 | --- | --- | --- |
 | Racing, pause, recharge, recovery | Extended course and supported vehicles | Selected style; protected HUD; instruments at wider edges |
 | Course intro and countdown | Extended course and backdrop | Selected style from the first visible intro frame; protected intro lettering, then racing HUD |
-| Recognised crash, finish, and loss | Wide while the racing layout remains valid | Instruments stay wide; full native effects retain Original colours |
+| Crash explosion and loss animation | Extended course while its layout remains valid | Selected style through flashes and fades; protected HUD and centred message |
+| Recognised finish and other loss | Wide while the racing layout remains valid | Instruments stay wide; unclassified full native effects retain Original colours |
 | Race results | Extended backdrop | Selected style; protected result lettering; text stays centred |
 | GP ending camera | Extended backdrop and racing vehicles | Selected style; corner instruments at wider edges; protected results table stays centred |
 | Title | Extended backdrop | Original colours; title text stays centred |

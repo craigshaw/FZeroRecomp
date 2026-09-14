@@ -104,12 +104,12 @@ static void CheckSceneTransitions(void) {
     FZeroRunOneFrameOfGame(); /* Synthetic reset, before the first upload. */
     const struct { unsigned mode, process, exception, obj; bool wide, hud; } cases[] = {
         {2,3,0,1,true,true}, {2,5,0,1,true,true}, {2,4,0,1,true,true},
-        {2,3,0x40,1,true,true}, {2,3,0x40,0,true,false},
-        {2,6,0x40,0,true,false}, {2,3,0x80,1,true,true},
+        {2,3,0x40,1,true,true}, {2,3,0x40,0,true,true},
+        {2,6,0x40,0,true,true}, {2,3,0x80,1,true,true},
         {2,3,0x22,1,true,true}, {2,3,0x21,1,true,true},
         {2,3,0x20,1,true,true}, {2,3,0x23,1,true,true},
         {2,3,8,1,true,true}, {2,4,0x80,1,true,true},
-        {2,6,0x40,1,true,true}, {2,4,0x40,0,true,false},
+        {2,6,0x40,1,true,true}, {2,4,0x40,0,true,true},
         {2,3,9,1,true,true}, {2,3,0x11,1,true,false},
         {2,7,0x80,1,false,false}, {3,3,0,1,true,false},
         {3,1,9,0,true,false}, {3,5,9,0,true,false}, {3,6,0,0,false,false},
@@ -126,6 +126,8 @@ static void CheckSceneTransitions(void) {
         CHECK(prepared==2 && !g_ram[0x54]);
         CHECK(layers.wide_scene==expected_wide && layers.hud_layout==expected_hud);
         CHECK(layers.native_oam==!cases[i].obj);
+        CHECK(layers.crash_layout==(cases[i].wide && cases[i].mode==2 &&
+              cases[i].exception==0x40 && !cases[i].obj));
         CHECK(layers.move_hud==(cases[i].hud || (cases[i].wide &&
               cases[i].mode==2 && (cases[i].exception==0x40 ||
               (cases[i].exception==0x11 && cases[i].obj)))));

@@ -41,6 +41,9 @@ static void CaptureHudSprites(FZeroLayers *layers, const Ppu *ppu, int line,
                                int first, bool *mask) {
     bool spark[256]={0}, later[256]={0};
     CaptureSprites(layers,ppu,line,first,47-first,mask);
+    /* Full crash uploads put explosion and smoke pieces in slots 48 onward,
+     * including the tail. Keep those pieces in the filtered scene. */
+    if(layers->crash_layout) return;
     CaptureSprites(layers,ppu,line,47,1,spark);
     CaptureSprites(layers,ppu,line,48,4,later);
     /* Racing uploads use the entire tail for shadows. Only full native
@@ -194,7 +197,8 @@ static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool prot
         /* The ending first retains the map, markers and counters, then
          * reuses their slots for the central results table. Racing corner
          * groups start outside x=48..183; results lettering stays inside. */
-        slots[slot]=slot!=47 && (!gp_bottom || x<48 || x>=184);
+        slots[slot]=slot!=47 && (!layers->crash_layout || slot<48) &&
+            (!gp_bottom || x<48 || x>=184);
     }
     bool move[256]={0}, centred[256]={0};
     CaptureSprites(layers,ppu,line,0,20,centred);
@@ -229,7 +233,7 @@ static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool prot
     copy->renderPitch=sizeof(layers->capture[0]);
     PpuClearOverlayBindings(copy);
     for(unsigned slot=20;slot<52;++slot) if(slots[slot]) HideHudSlot(copy,slot);
-    if(layers->native_oam) { HideHudSlot(copy,126); HideHudSlot(copy,127); }
+    if(layers->native_oam && !layers->crash_layout) { HideHudSlot(copy,126); HideHudSlot(copy,127); }
     if(top) {
         copy->screenEnabled[0] &= ~4;
         copy->screenEnabled[1] &= ~4;
