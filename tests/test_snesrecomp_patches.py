@@ -33,7 +33,7 @@ def recovery(tmp_path):
     for number, value in enumerate(("first", "second"), 1):
         source.write_text(value + "\n")
         patch = git(dependency, "diff") + "\n"
-        (patches / f"{number:04d}.patch").write_text(patch)
+        (patches / f"{number:04d}.patch").write_text(patch, newline="\n")
         git(dependency, "commit", "-qam", f"Synthetic patch {number}")
     integrated = git(dependency, "rev-parse", "HEAD")
     script = (ROOT / "tools/apply_snesrecomp_patches.sh").read_text()

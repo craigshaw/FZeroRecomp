@@ -2,12 +2,15 @@
 
 | Revision | Commit |
 | --- | --- |
-| Integration on [craigshaw/snesrecomp](https://github.com/craigshaw/snesrecomp/tree/codex/fzero-upstream-20260914) | `cfc70ad071e385db2d779d39f2cf04a684cff77a` |
+| Integration on [craigshaw/snesrecomp](https://github.com/craigshaw/snesrecomp/tree/codex/fzero-upstream-20260914) | `da4a541713fd28702dd8c11c87a2c0fd69fcce45` |
 | Upstream base | `4d42cab33d02a8ce3dd5626ca2f2a7b91cedb628` |
 
-The seven ordered files under `patches/snesrecomp/` reproduce the integration
+The eight ordered files under `patches/snesrecomp/` reproduce the integration
 from that base. Keep generic changes in the dependency and game-specific host
 code here.
+
+Recovery patches use LF line endings, enforced by `.gitattributes`, so
+`git apply --cached` sees the same payload on Windows and POSIX hosts.
 
 ## Patch series
 
@@ -20,6 +23,7 @@ code here.
 | 0005 | Classify tier-2 evidence and honour final per-address entry-width overrides. |
 | 0006 | Support the macOS system Bash, linker and context API in the C test harness. |
 | 0007 | Restrict the low-WRAM dynamic polling policy to S-DD1 cartridges. |
+| 0008 | Preserve eight-byte PPU priority-buffer alignment with MSVC, GCC and Clang; test C and C++ on Windows, Linux and macOS. |
 
 The previous HDMA ownership patch is retired. F-Zero now uses upstream's
 `snes_set_hdma_beam_enabled` interface around its per-line HDMA/render walk
@@ -38,7 +42,7 @@ sh tools/apply_snesrecomp_patches.sh
 ```
 
 At the clean integrated revision, the script verifies the checkout without
-applying patches. At the documented base, it applies all seven in order and
+applying patches. At the documented base, it applies all eight in order and
 accepts a repeated run. It refuses an unexpected revision or a dirty integrated
 checkout. Recovery mode leaves local changes; use the integrated pin normally.
 
@@ -89,6 +93,34 @@ tier-2 capture and SRAM matched the previous baseline run.
 On 14 September 2026, the owner reported completing a full GP with no issues,
 including working saves, filters and modes. The league, difficulty and vehicle
 were not specified. This is the tested candidate's manual gameplay result,
-not a claim of complete game coverage. This dependency upgrade has not yet
-been built or exercised on Windows or Linux. Existing release downloads
-remain unchanged.
+not a claim of complete game coverage. Existing release downloads remain
+unchanged.
+
+### Windows alignment follow-up
+
+Patch 0008 retains the required eight-byte alignment and unchanged priority
+buffer layout, using `__declspec(align(8))` for MSVC (including clang-cl) and
+the existing GNU alignment attribute for GCC and Clang. Both the struct tag
+and typedef carry the alignment. The synthetic test checks nested buffers,
+array strides, and stack, static and heap addresses in C and C++; removing
+the alignment makes the regression test fail at compile time.
+
+The [PPU alignment workflow](https://github.com/craigshaw/snesrecomp/actions/runs/34834925823)
+passed C and C++ tests on Windows/MSVC, Linux/GCC, Linux/Clang and
+macOS/Apple Clang. Local Windows checks also passed with MinGW GCC and LLVM
+Clang in C99, C11 and C++17 modes.
+
+The final pinned integration rebuilt successfully with MSVC x64 Release and
+SDL 3.4.16 after regeneration. All four host CTest tests and the Direct3D 12
+GPU presentation checks passed. Separate headless and Direct3D 12 boot/attract
+runs each completed 1,800 frames with RGB validation: all headless full frames
+and all GPU protected-HUD frames matched. These are automated smoke tests,
+not a new manual Grand Prix playthrough.
+
+The dependency v2 runner reported 420/420, including two C contract entries
+that explicitly skip on Windows. The separate exact-width regression passed.
+All eight recovery patches reconstruct the integration from the documented
+base and accept a repeated run. The seven recovery/classifier tests pass with
+normal Windows Git settings, including the dirty-checkout refusal cases.
+The full Linux/macOS game was not rebuilt for this alignment-only follow-up;
+the cross-platform CI checks exercise the shared PPU layout contract.

@@ -5,7 +5,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 DEPENDENCY="$ROOT/snesrecomp"
 PATCH_DIR="$ROOT/patches/snesrecomp"
 EXPECTED_BASE=4d42cab33d02a8ce3dd5626ca2f2a7b91cedb628
-INTEGRATED_REVISION=cfc70ad071e385db2d779d39f2cf04a684cff77a
+INTEGRATED_REVISION=da4a541713fd28702dd8c11c87a2c0fd69fcce45
 
 if [ ! -d "$DEPENDENCY/.git" ] && [ ! -f "$DEPENDENCY/.git" ]; then
   printf '%s\n' 'snesrecomp submodule is not initialised.' >&2

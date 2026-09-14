@@ -1,5 +1,5 @@
-# Patch payloads preserve source line endings and email-patch separators.
-patches/snesrecomp/*.patch -whitespace
+# Keep patch payloads in repository form for git apply --cached on Windows.
+patches/snesrecomp/*.patch text eol=lf -whitespace
 patches/recomp-ui/*.patch text eol=lf -whitespace
 
 *.ps1 text eol=crlf

@@ -1,0 +1,189 @@
+diff --git a/.github/workflows/ppu-alignment.yml b/.github/workflows/ppu-alignment.yml
+new file mode 100644
+index 0000000..371b59c
+--- /dev/null
++++ b/.github/workflows/ppu-alignment.yml
+@@ -0,0 +1,48 @@
++name: PPU alignment
++
++on:
++  workflow_dispatch:
++  push:
++    paths:
++      - '.github/workflows/ppu-alignment.yml'
++      - 'runner/src/types.h'
++      - 'runner/src/snes/**'
++      - 'tests/ppu/**'
++  pull_request:
++    paths:
++      - '.github/workflows/ppu-alignment.yml'
++      - 'runner/src/types.h'
++      - 'runner/src/snes/**'
++      - 'tests/ppu/**'
++
++permissions:
++  contents: read
++
++jobs:
++  alignment:
++    name: ${{ matrix.name }} (C and C++)
++    strategy:
++      fail-fast: false
++      matrix:
++        include:
++          - name: Windows MSVC
++            os: windows-latest
++            options: ''
++          - name: Linux GCC
++            os: ubuntu-latest
++            options: '-DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++'
++          - name: Linux Clang
++            os: ubuntu-latest
++            options: '-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++'
++          - name: macOS Apple Clang
++            os: macos-latest
++            options: ''
++    runs-on: ${{ matrix.os }}
++    steps:
++      - uses: actions/checkout@v6
++      - name: Configure
++        run: cmake -S tests/ppu/alignment -B build/ppu-alignment ${{ matrix.options }}
++      - name: Build
++        run: cmake --build build/ppu-alignment --config Release
++      - name: Test
++        run: ctest --test-dir build/ppu-alignment -C Release --output-on-failure
+diff --git a/runner/src/snes/ppu.h b/runner/src/snes/ppu.h
+index 454548e..093c6e0 100644
+--- a/runner/src/snes/ppu.h
++++ b/runner/src/snes/ppu.h
+@@ -66,7 +66,13 @@ typedef struct PpuWsElasticSeg {
+ 
+ typedef uint16_t PpuZbufType;
+ 
+-typedef struct PpuPixelPrioBufs {
++#if defined(_MSC_VER)
++#define PPU_ALIGN8 __declspec(align(8))
++#else
++#define PPU_ALIGN8 __attribute__((aligned(8)))
++#endif
++
++typedef struct PPU_ALIGN8 PpuPixelPrioBufs {
+   // This holds the prio in the upper 8 bits and the color in the lower 8 bits.
+   // Sized for the widescreen border; logical screen x maps to
+   // data[x + kPpuExtraLeftRight].
+@@ -76,7 +82,9 @@ typedef struct PpuPixelPrioBufs {
+   // offset aborts on ARM -- and which ones do shifts whenever a field
+   // above them grows.
+   PpuZbufType data[kPpuBufWidth];
+-} __attribute__((aligned(8))) PpuPixelPrioBufs;
++} PpuPixelPrioBufs;
++
++#undef PPU_ALIGN8
+ 
+ static inline void PpuWidescreenAdjustPinnedWindowEdges(
+     int screen_left, int screen_right, int *w1l, int *w1r, int *w2l,
+diff --git a/tests/ppu/alignment/CMakeLists.txt b/tests/ppu/alignment/CMakeLists.txt
+new file mode 100644
+index 0000000..26fcd13
+--- /dev/null
++++ b/tests/ppu/alignment/CMakeLists.txt
+@@ -0,0 +1,16 @@
++cmake_minimum_required(VERSION 3.20)
++project(ppu_alignment_tests LANGUAGES C CXX)
++
++enable_testing()
++get_filename_component(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
++set(TEST_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../ppu_alignment_test.c")
++configure_file("${TEST_SOURCE}" "${CMAKE_CURRENT_BINARY_DIR}/ppu_alignment_test.cpp" COPYONLY)
++
++add_executable(ppu_alignment_c "${TEST_SOURCE}")
++add_executable(ppu_alignment_cxx "${CMAKE_CURRENT_BINARY_DIR}/ppu_alignment_test.cpp")
++set_target_properties(ppu_alignment_c PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
++set_target_properties(ppu_alignment_cxx PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES)
++foreach(target ppu_alignment_c ppu_alignment_cxx)
++    target_include_directories(${target} PRIVATE "${REPO_ROOT}/runner/src")
++    add_test(NAME ${target} COMMAND ${target})
++endforeach()
+diff --git a/tests/ppu/ppu_alignment_test.c b/tests/ppu/ppu_alignment_test.c
+new file mode 100644
+index 0000000..0e17f1a
+--- /dev/null
++++ b/tests/ppu/ppu_alignment_test.c
+@@ -0,0 +1,56 @@
++/* ROM-free alignment contract. Compile as both C and C++: ppu.h is shared
++ * by the C renderer and C++ hosts. ClearBackdrop writes eight bytes at a time. */
++#include <stddef.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++
++#include "snes/ppu.h"
++
++/* A leading byte catches declarations that align only a typedef name rather
++ * than the struct itself. Check the struct tag as well as the typedef. */
++typedef struct AlignmentProbe {
++    char prefix;
++    struct PpuPixelPrioBufs buffers[2];
++} AlignmentProbe;
++
++#define CHECK_LAYOUT(name, condition) typedef char name[(condition) ? 1 : -1]
++CHECK_LAYOUT(buffer_alignment, offsetof(AlignmentProbe, buffers) % 8 == 0);
++CHECK_LAYOUT(buffer_size, sizeof(PpuPixelPrioBufs) == kPpuBufWidth * sizeof(PpuZbufType));
++CHECK_LAYOUT(buffer_stride, sizeof(PpuPixelPrioBufs) % 8 == 0);
++CHECK_LAYOUT(data_offset, offsetof(PpuPixelPrioBufs, data) == 0);
++CHECK_LAYOUT(bg_offset, offsetof(Ppu, bgBuffers) % 8 == 0);
++CHECK_LAYOUT(obj_offset, offsetof(Ppu, objBuffer) % 8 == 0);
++CHECK_LAYOUT(overlay_offset, offsetof(Ppu, overlayBuffers) % 8 == 0);
++CHECK_LAYOUT(ppu_stride, sizeof(Ppu) % 8 == 0);
++
++static int aligned(const void *address) {
++    return (uintptr_t)address % 8 == 0;
++}
++
++static int check_ppu(const Ppu *ppu) {
++    size_t i;
++    if (!aligned(ppu->objBuffer.data)) return 0;
++    for (i = 0; i < sizeof(ppu->bgBuffers) / sizeof(ppu->bgBuffers[0]); ++i)
++        if (!aligned(ppu->bgBuffers[i].data)) return 0;
++    for (i = 0; i < sizeof(ppu->overlayBuffers) / sizeof(ppu->overlayBuffers[0]); ++i)
++        if (!aligned(ppu->overlayBuffers[i].data)) return 0;
++    return 1;
++}
++
++int main(void) {
++    AlignmentProbe stack;
++    static Ppu global_ppu;
++    Ppu *heap = (Ppu *)malloc(2 * sizeof(Ppu));
++    int ok;
++    if (!heap) return 1;
++    ok = aligned(stack.buffers[0].data) && aligned(stack.buffers[1].data) &&
++         check_ppu(&global_ppu) && check_ppu(&heap[0]) && check_ppu(&heap[1]);
++    free(heap);
++    if (!ok) {
++        fputs("ppu_alignment_test: FAIL (unaligned priority buffer)\n", stderr);
++        return 1;
++    }
++    puts("ppu_alignment_test: PASS");
++    return 0;
++}
+diff --git a/tests/run_c_tests.sh b/tests/run_c_tests.sh
+index ed78af3..7d7ffac 100644
+--- a/tests/run_c_tests.sh
++++ b/tests/run_c_tests.sh
+@@ -30,6 +30,16 @@ echo "=== launcher ==="
+     -o "$OUT/launcher_test"
+ "$OUT/launcher_test"
+ 
++echo "=== PPU alignment (C and C++) ==="
++"$CC" -std=c11 -Wall -Wextra -Werror -O1 \
++    -I "$ROOT/runner/src" "$ROOT/tests/ppu/ppu_alignment_test.c" \
++    -o "$OUT/ppu_alignment_test"
++"$OUT/ppu_alignment_test"
++"${CXX:-g++}" -std=c++17 -Wall -Wextra -Werror -O1 -x c++ \
++    -I "$ROOT/runner/src" "$ROOT/tests/ppu/ppu_alignment_test.c" \
++    -o "$OUT/ppu_alignment_cxx_test"
++"$OUT/ppu_alignment_cxx_test"
++
+ echo "=== PPU sprite limits ==="
+ "$CC" -std=c11 -Wall -Wextra -O1 \
+     -DSNESRECOMP_REVERSE_DEBUG=0 \
