@@ -173,8 +173,11 @@ void FZeroVehiclesPrepare(FZeroVehicles *frame, const uint8_t *ram,
                            const uint8_t *rom, size_t rom_size) {
     frame->ready = false;
     memset(frame->car, 0, sizeof(frame->car));
+    /* The GP ending camera retains the racing vehicle buffers while showing
+     * results. Keep reconstructing cars beyond the native horizontal edges. */
     if (!rom || rom_size != 0x80000 || !FZeroSceneWide(ram) ||
-        ram[0x54] != 2 || ram[0x55] < 3 || ram[0xc3]) {
+        ram[0x54] != 2 || ram[0x55] < 3 ||
+        (ram[0xc3] && ram[0xc3] != 0x11)) {
         memset(frame->jump_anchor_valid, 0, sizeof(frame->jump_anchor_valid));
         return;
     }

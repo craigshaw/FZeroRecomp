@@ -49,6 +49,56 @@ static void Fixture(void) {
     }
 }
 
+static void TestGpEndingVehicles(void) {
+    Fixture();
+    ram[0xc3] = 0x11;
+    ram[0xb02] = ram[0xb04] = 0x80;
+    Word(ram + 0x1172, -178); Word(ram + 0x1174, 172);
+    memcpy(saved_ram, ram, sizeof(ram)); memcpy(saved_rom, rom, sizeof(rom));
+    FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
+    CHECK(frame.ready && frame.car[1].added && frame.car[2].added);
+    CHECK(frame.car[1].x == -50 && frame.car[2].x == 300);
+    CHECK(frame.shadow_count == 1);
+    CHECK(!memcmp(ram, saved_ram, sizeof(ram)) && !memcmp(rom, saved_rom, sizeof(rom)));
+
+    memset(&layers, 0, sizeof(layers));
+    layers.results_layout = true;
+    layers.vehicles = frame;
+    ppu_reset(&ppu);
+    PpuBeginDrawing(&ppu, (uint8_t *)original, sizeof(original[0]), kPpuRenderFlags_NewRenderer);
+    ppu.inidisp = 15; ppu.bgmode = 1; ppu.obsel = 2;
+    ppu.screenEnabled[0] = 0x10;
+    ppu.cgram[0] = 0x03e0; ppu.cgram[129] = 0x7c1f; ppu.cgram[145] = 0x7c00;
+    /* Invented results lettering stays in the native text slots. */
+    ppu.oam[0] = (92 << 8) | 64; ppu.oam[1] = 0x3200;
+    for (unsigned row = 0; row < 8; ++row) ppu.vram[0x4000 + row] = 0xff;
+    ppu_runLine(&ppu, 0); ppu_runLine(&ppu, 93); saved_ppu = ppu;
+    FZeroLayersProcessLine(&layers, &ppu, 93, true, false);
+    CHECK(!memcmp(&saved_ppu, &ppu, sizeof(ppu)));
+    CHECK(layers.wide_world[92][FZERO_WIDE_MARGIN - 50] == 0xff00ff);
+    CHECK(layers.wide_world[92][FZERO_WIDE_MARGIN + 300] == 0xff00ff);
+    CHECK(!layers.wide_hud[92][FZERO_WIDE_MARGIN - 50]);
+    CHECK(!layers.wide_hud[92][FZERO_WIDE_MARGIN + 300]);
+    CHECK(layers.wide_hud[92][FZERO_WIDE_MARGIN + 64] == 0xff0000ffu);
+    for (unsigned x = 0; x < 256; ++x) {
+        uint32_t c = layers.wide_hud[92][FZERO_WIDE_MARGIN + x];
+        if (!c) c = layers.wide_world[92][FZERO_WIDE_MARGIN + x];
+        CHECK((c & 0xffffff) == (original[92][x] & 0xffffff));
+    }
+    /* The ending camera continues to project moving cars every frame. */
+    Word(ram + 0x1172, -172); Word(ram + 0x1174, 178);
+    FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
+    CHECK(frame.car[1].x == -44 && frame.car[2].x == 306);
+    /* The exception must not enable reconstruction on unrelated layouts. */
+    ram[0xc3] = 9;
+    FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom)); CHECK(!frame.ready);
+    ram[0xc3] = 0x11; ram[0x50] = 0;
+    FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom)); CHECK(!frame.ready);
+    ram[0x50] = 1; ram[0x54] = 3;
+    FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom)); CHECK(!frame.ready);
+    memset(&layers, 0, sizeof(layers));
+}
+
 void TestVehicles(void) {
     uint8_t rows[658], scales[256];
     for (unsigned i = 0; i < 658; ++i) rows[i] = i % 256;
@@ -254,5 +304,6 @@ void TestVehicles(void) {
         ram[0xc3] = 1;
         FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom)); CHECK(!frame.jump_anchor_valid[1]);
     }
+    TestGpEndingVehicles();
     puts("wide vehicle tests: passed");
 }
