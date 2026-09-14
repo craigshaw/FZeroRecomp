@@ -128,7 +128,10 @@ static void CheckSceneTransitions(void) {
         CHECK(layers.native_oam==!cases[i].obj);
         CHECK(layers.crash_layout==(cases[i].wide && cases[i].mode==2 &&
               cases[i].exception==0x40 && !cases[i].obj));
-        CHECK(layers.move_hud==(cases[i].hud || (cases[i].wide &&
+        CHECK(layers.move_hud==(cases[i].hud ||
+              (cases[i].wide && !cases[i].obj &&
+               (cases[i].mode==3 || (cases[i].mode==2 && cases[i].process<=1))) ||
+              (cases[i].wide &&
               cases[i].mode==2 && (cases[i].exception==0x40 ||
               (cases[i].exception==0x11 && cases[i].obj)))));
         CHECK(layers.intro_panorama==(cases[i].mode==2 && cases[i].process<=1));
@@ -145,7 +148,7 @@ static void CheckSceneTransitions(void) {
     g_ram[0x55]=2; g_ram[0x56]=0; g_ram[0x5c]=1;
     prepared=0; expected_wide=true; expected_hud=false;
     FZeroRunOneFrameOfGame();
-    CHECK(layers.wide_scene && layers.intro_panorama && !layers.hud_layout);
+    CHECK(layers.wide_scene && layers.intro_panorama && !layers.hud_layout && layers.move_hud);
     g_ram[0x54]=3; g_ram[0x55]=3; g_ram[0x5c]=1; g_ram[0x5f]=0x80;
     CHECK(FZeroSceneWide(g_ram));
     g_ram[0x5c]=0; CHECK(!FZeroSceneWide(g_ram));

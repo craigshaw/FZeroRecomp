@@ -79,8 +79,11 @@ void FZeroRunOneFrameOfGame(void) {
           !FZeroSceneResults(g_ram) && g_ram[0xc3] != 0x11;
       /* Finish/loss, crash and GP ending cameras retain the instruments.
        * Crash uploads also retain selective filtering; their effect slots
-       * are excluded from instrument capture and movement. */
+       * are excluded from instrument capture and movement. Intro and standalone
+       * result uploads use their reduced score/lives layout. */
       g_layers->move_hud = g_layers->hud_layout ||
+          (g_layers->wide_scene && g_layers->native_oam &&
+           (g_layers->intro_panorama || g_layers->results_layout)) ||
           (g_layers->wide_scene && g_ram[0x54] == 2 &&
            (g_ram[0xc3] == 0x40 ||
             (g_ram[0xc3] == 0x11 && !g_layers->native_oam)));

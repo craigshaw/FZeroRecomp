@@ -324,6 +324,57 @@ static void CheckMovedHud(void) {
     layers.move_hud=false;
 }
 
+static void CheckNativeCounters(void) {
+    for(int intro=0;intro<2;++intro) {
+        memset(&layers,0,sizeof(layers));
+        ppu_reset(&ppu);
+        PpuBeginDrawing(&ppu,(uint8_t*)original,sizeof(original[0]),kPpuRenderFlags_NewRenderer);
+        ppu.inidisp=15; ppu.bgmode=1; ppu.screenEnabled[0]=0x10;
+        ppu.cgram[0]=0x001f; ppu.cgram[129]=0x03e0;
+        for(int slot=0;slot<128;++slot) SetSprite(slot,256,240,false,0);
+        for(int row=0;row<8;++row) ppu.vram[row]=0xff;
+        layers.native_oam=true; layers.move_hud=true;
+        layers.intro_panorama=intro; layers.results_layout=!intro;
+        SetSprite(126,208,192,false,0x3000);
+        SetSprite(127,232,192,false,0x3000);
+        /* Earlier slots are intro/result lettering, even at a corner. */
+        SetSprite(24,24,192,false,0x3000);
+        SetSprite(40,112,192,false,0x3000);
+        CheckPolicy(true,false,196);
+        CHECK(layers.wide_hud[195][208+2*FZERO_WIDE_MARGIN]==0xff00ff00u);
+        CHECK(layers.wide_hud[195][232+2*FZERO_WIDE_MARGIN]==0xff00ff00u);
+        CHECK(!layers.wide_hud[195][208+FZERO_WIDE_MARGIN]);
+        CHECK(layers.wide_world[195][208+FZERO_WIDE_MARGIN]==0xff0000);
+        CHECK(layers.wide_hud[195][24+FZERO_WIDE_MARGIN]==0xff00ff00u);
+        CHECK(layers.wide_hud[195][112+FZERO_WIDE_MARGIN]==0xff00ff00u);
+        CHECK(!layers.wide_hud[195][24]);
+        /* BG3 lettering uncovered by the moved lives icon keeps its colour
+         * protection at the original position. */
+        ppu.screenEnabled[0]=0x14; ppu.bgXsc[2]=4; ppu.cgram[1]=0x7c00;
+        for(int tile=0;tile<1024;++tile) ppu.vram[0x400+tile]=0;
+        CheckPolicy(true,false,196);
+        CHECK(layers.wide_hud[195][208+FZERO_WIDE_MARGIN]==0xff0000ffu);
+        CHECK(layers.wide_hud[195][208+2*FZERO_WIDE_MARGIN]==0xff00ff00u);
+        /* Only the results score in the upper-left BG3 band moves. Intro
+         * lettering, the results heading and the old power region stay put. */
+        ppu.screenEnabled[0]=4; ppu.bgXsc[2]=4; ppu.cgram[1]=0x7c00;
+        for(int tile=0;tile<1024;++tile) ppu.vram[0x400+tile]=0;
+        CheckPolicy(true,false,20);
+        CHECK(layers.wide_hud[19][24+(intro?FZERO_WIDE_MARGIN:0)]==0xff0000ffu);
+        if(!intro) {
+            CHECK(!layers.wide_hud[19][24+FZERO_WIDE_MARGIN]);
+            CHECK(layers.wide_world[19][24+FZERO_WIDE_MARGIN]==0xff0000);
+        }
+        CHECK(layers.wide_hud[19][100+FZERO_WIDE_MARGIN]==0xff0000ffu);
+        CHECK(layers.wide_hud[19][190+FZERO_WIDE_MARGIN]==0xff0000ffu);
+        CHECK(!layers.wide_hud[19][190+2*FZERO_WIDE_MARGIN]);
+        ppu.screenEnabled[0]=0;
+        CheckPolicy(true,false,20);
+        CHECK(!layers.hud[19][190]); /* No racing power-window mask. */
+    }
+    memset(&layers,0,sizeof(layers));
+}
+
 static void CheckCrashFilter(void) {
     memset(&layers,0,sizeof(layers));
     ppu_reset(&ppu);
@@ -679,6 +730,7 @@ int main(void) {
     CheckTextFilters(true);
     CheckGpEndingHud();
     CheckCrashFilter();
+    CheckNativeCounters();
     TestVehicles();
     TestGround();
     puts("layer extraction tests: passed");

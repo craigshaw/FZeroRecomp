@@ -69,14 +69,18 @@ and native sprite limits are unchanged.
   keep the scene filtered and retain HUD slots 0..46. Slots 48 onward become
   explosion and smoke pieces, so they receive the scene filter and stay at
   their live positions; the normal tail-counter rule does not apply.
+  Intro and standalone results uploads instead use slots 126..127 for lives.
+  Move those counters to the right edge and the results score in the upper-left
+  BG3 band to the left edge. Keep other lettering centred, including text
+  uncovered at an old counter position. These layouts have no racing power mask.
 
 | Layout | Wide view | Colour and HUD policy |
 | --- | --- | --- |
 | Racing, pause, recharge, recovery | Extended course and supported vehicles | Selected style; protected HUD; instruments at wider edges |
-| Course intro and countdown | Extended course and backdrop | Selected style from the first visible intro frame; protected intro lettering, then racing HUD |
+| Course intro and countdown | Extended course and backdrop | Selected style; lives at the wide right edge; centred intro lettering, then racing HUD |
 | Crash explosion and loss animation | Extended course while its layout remains valid | Selected style through flashes and fades; protected HUD and centred message |
 | Recognised finish and other loss | Wide while the racing layout remains valid | Instruments stay wide; unclassified full native effects retain Original colours |
-| Race results | Extended backdrop | Selected style; protected result lettering; text stays centred |
+| Race results and crashed-out page | Extended backdrop | Selected style; score and lives at wide edges; protected result lettering stays centred |
 | GP ending camera | Extended backdrop and racing vehicles | Selected style; corner instruments at wider edges; protected results table stays centred |
 | Title | Extended backdrop | Original colours; title text stays centred |
 | Unrecognised layout or unsupported render mode | Native view | Original colours |

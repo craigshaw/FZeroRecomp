@@ -189,7 +189,9 @@ static void HideHudSlot(Ppu *copy, unsigned slot) {
  * separate slots and retain their original positions and colour protection. */
 static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool protect_scene) {
     int y=line-1;
-    bool gp_bottom=layers->results_layout && y>=48;
+    bool native_text=layers->native_oam &&
+        (layers->intro_panorama || layers->results_layout);
+    bool gp_bottom=!native_text && layers->results_layout && y>=48;
     bool slots[52]={0};
     for(unsigned slot=20;slot<52;++slot) {
         int x=ppu->oam[slot*2]&255;
@@ -201,7 +203,12 @@ static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool prot
             (!gp_bottom || x<48 || x>=184);
     }
     bool move[256]={0}, centred[256]={0};
-    CaptureSprites(layers,ppu,line,0,20,centred);
+    if(native_text) {
+        /* Intro, race results and the crashed-out page share a reduced HUD.
+         * Earlier slots contain centred lettering; only the tail holds lives. */
+        CaptureSprites(layers,ppu,line,0,126,centred);
+        CaptureSprites(layers,ppu,line,126,2,move);
+    } else CaptureSprites(layers,ppu,line,0,20,centred);
     if(gp_bottom) {
         /* Capture and remove the same selected groups. Keep result lettering
          * in the clean scene beneath an instrument, including equal colours. */
@@ -212,14 +219,15 @@ static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool prot
             first=end;
         }
         CaptureSprites(layers,ppu,line,52,16,centred);
-    } else CaptureHudSprites(layers,ppu,line,20,move);
-    bool top=y<48 && PPU_mode(ppu)==1;
-    bool power_band=top && y>=18 && y<30;
+    } else if(!native_text) CaptureHudSprites(layers,ppu,line,20,move);
+    bool top=PPU_mode(ppu)==1 && (native_text ?
+        layers->results_layout && y<32 : y<48);
+    bool power_band=!native_text && top && y>=18 && y<30;
     bool power_math=power_band && y<28;
     bool any=power_band;
     for(int x=0;x<256;++x) {
         unsigned layer=(ppu->bgBuffers[0].data[x+kPpuExtraLeftRight]>>8)&15;
-        if(top && layer==2) move[x]=true;
+        if(top && layer==2 && (!native_text || x<64)) move[x]=true;
         if(centred[x]) move[x]=false;
         any |= move[x];
     }
@@ -232,7 +240,8 @@ static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool prot
     copy->renderBuffer=(uint8_t*)layers->capture;
     copy->renderPitch=sizeof(layers->capture[0]);
     PpuClearOverlayBindings(copy);
-    for(unsigned slot=20;slot<52;++slot) if(slots[slot]) HideHudSlot(copy,slot);
+    if(!native_text)
+        for(unsigned slot=20;slot<52;++slot) if(slots[slot]) HideHudSlot(copy,slot);
     if(layers->native_oam && !layers->crash_layout) { HideHudSlot(copy,126); HideHudSlot(copy,127); }
     if(top) {
         copy->screenEnabled[0] &= ~4;
@@ -253,8 +262,10 @@ static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool prot
         if(old_meter && power_math && x>=ppu->window1left && x<=ppu->window1right)
             move[x]=true;
         if(!move[x] && !old_meter) continue;
-        world[x+FZERO_WIDE_MARGIN]=protect_scene?0:layers->capture[y][x];
-        hud[x+FZERO_WIDE_MARGIN]=protect_scene?(layers->capture[y][x]|0xff000000u):0;
+        bool protected_pixel=protect_scene ||
+            (native_text && TextOverlayPixel(copy,x,true));
+        world[x+FZERO_WIDE_MARGIN]=protected_pixel?0:layers->capture[y][x];
+        hud[x+FZERO_WIDE_MARGIN]=protected_pixel?(layers->capture[y][x]|0xff000000u):0;
     }
     /* Clear all sources before drawing destinations: the two regions can
      * overlap when a wide HUD group extends back into the original centre. */
@@ -283,7 +294,8 @@ void FZeroLayersProcessLine(FZeroLayers *layers, const Ppu *ppu, int line,
         }
         for (int x = 0; x < FZERO_LAYER_WIDTH; ++x)
             mask[x] |= TextOverlayPixel(ppu, x, layers->native_oam);
-        if (layers->move_hud && PPU_mode(ppu) == 1 && y >= 18 && y < 30)
+        if (layers->move_hud && !layers->native_oam &&
+            PPU_mode(ppu) == 1 && y >= 18 && y < 30)
             for (int x = 174; x < 242; ++x) mask[x] = true;
     } else if (supported && hud_layout) {
         /* Racing messages, map, times and counters. Exhaust, sparks, vehicles
