@@ -4,8 +4,8 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 DEPENDENCY="$ROOT/snesrecomp"
 PATCH_DIR="$ROOT/patches/snesrecomp"
-EXPECTED_BASE=a64932f1af958f7e71a728ac1235d6cf911f71a0
-INTEGRATED_REVISION=54e88618f179eabcd4dfa2279efa4ba492ac682f
+EXPECTED_BASE=4d42cab33d02a8ce3dd5626ca2f2a7b91cedb628
+INTEGRATED_REVISION=cfc70ad071e385db2d779d39f2cf04a684cff77a
 
 if [ ! -d "$DEPENDENCY/.git" ] && [ ! -f "$DEPENDENCY/.git" ]; then
   printf '%s\n' 'snesrecomp submodule is not initialised.' >&2
@@ -19,7 +19,7 @@ if [ "$actual_base" = "$INTEGRATED_REVISION" ]; then
     printf '%s\n' 'The integrated snesrecomp checkout has local edits; review them first.' >&2
     exit 1
   fi
-  printf '%s\n' 'All six F-Zero patches are included in the pinned integration commit.'
+  printf '%s\n' 'All F-Zero patches are included in the pinned integration commit.'
   exit 0
 fi
 
@@ -27,6 +27,21 @@ if [ "$actual_base" != "$EXPECTED_BASE" ]; then
   printf 'unexpected snesrecomp base: %s\nexpected integrated revision: %s\nrecovery base: %s\n' \
     "$actual_base" "$INTEGRATED_REVISION" "$EXPECTED_BASE" >&2
   exit 1
+fi
+
+# Build the expected final index without changing the checkout's real index.
+# Later patches can revise earlier hunks, so reversing each patch separately
+# cannot reliably identify a fully recovered checkout.
+RECOVERY_INDEX=$(mktemp "${TMPDIR:-/tmp}/fzero-recovery.XXXXXX")
+trap 'rm -f "$RECOVERY_INDEX"' EXIT HUP INT TERM
+rm -f "$RECOVERY_INDEX"
+GIT_INDEX_FILE="$RECOVERY_INDEX" git -C "$DEPENDENCY" read-tree "$EXPECTED_BASE"
+for patch in "$PATCH_DIR"/*.patch; do
+  GIT_INDEX_FILE="$RECOVERY_INDEX" git -C "$DEPENDENCY" apply --cached "$patch"
+done
+if GIT_INDEX_FILE="$RECOVERY_INDEX" git -C "$DEPENDENCY" diff --quiet; then
+  printf '%s\n' 'The full F-Zero recovery stack is already applied.'
+  exit 0
 fi
 
 for patch in "$PATCH_DIR"/*.patch; do
@@ -40,3 +55,8 @@ for patch in "$PATCH_DIR"/*.patch; do
     exit 1
   fi
 done
+
+if ! GIT_INDEX_FILE="$RECOVERY_INDEX" git -C "$DEPENDENCY" diff --quiet; then
+  printf '%s\n' 'Recovered checkout differs from the expected patch stack.' >&2
+  exit 1
+fi

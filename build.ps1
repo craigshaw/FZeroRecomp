@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$PatchedSnesrecompRevision = '54e88618f179eabcd4dfa2279efa4ba492ac682f'
+$PatchedSnesrecompRevision = 'cfc70ad071e385db2d779d39f2cf04a684cff77a'
 $Preset = 'windows-msvc-x64-release'
 
 function Invoke-External {

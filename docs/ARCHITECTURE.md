@@ -29,9 +29,11 @@ calls the configured NMI and IRQ entries and preserves their hardware stack
 model. Each scanline is drawn and captured before the next HDMA/IRQ update;
 a handler's register changes affect the following row.
 
-During this scanline walk, the host sets `g_host_owns_hdma` so the dependency's
-beam simulator does not run a second HDMA engine. Clear the flag outside the
-walk. Preserve this ordering when changing the scheduler.
+During this scanline walk, the host calls
+`snes_set_hdma_beam_enabled(g_snes, false)` so the dependency's beam simulator
+does not run a second HDMA engine. It saves the prior per-instance setting and
+restores it after the walk, including when beam HDMA was already disabled.
+Preserve this ordering when changing the scheduler.
 
 Course, vehicle, and scene-policy snapshots are taken before NMI with the
 matching display upload. Reading them after the next guest update can combine

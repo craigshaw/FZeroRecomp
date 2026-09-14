@@ -109,7 +109,8 @@ void FZeroDrawPpuFrame(void) {
    * left it), so a dma_doHdma firing inside a raster IRQ would write the
    * window/scroll registers with the wrong band and persist through the next
    * host band hold, causing horizon-band flicker. */
-  g_host_owns_hdma = 1;
+  const bool beam_hdma_was_enabled = !g_snes->hdmaBeamOff;
+  snes_set_hdma_beam_enabled(g_snes, false);
 
   /* Re-arm HDMA channels from the $420C latch (the runner tracks it in
    * g_snesrecomp_last_hdmaen on every $420C write, including the NMI upload). */
@@ -154,7 +155,7 @@ void FZeroDrawPpuFrame(void) {
     }
   }
 
-  g_host_owns_hdma = 0;
+  snes_set_hdma_beam_enabled(g_snes, beam_hdma_was_enabled);
 }
 
 const RtlGameInfo kFZeroGameInfo = {

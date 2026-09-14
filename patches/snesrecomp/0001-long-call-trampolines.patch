@@ -1,29 +1,8 @@
-From 8229f70307127d90b64f90b90fd9c3d9c98b3450 Mon Sep 17 00:00:00 2001
-From: Craig Shaw <craig@craigshaw.com>
-Date: Thu, 10 Sep 2026 22:56:37 +0100
-Subject: [PATCH 1/6] Recognize direct long-call trampolines
-
-Integrate the reviewed F-Zero dependency patch 0001-Recognize-direct-long-call-trampolines.patch from craigshaw/FZeroRecomp.
-
-Co-authored-by: Codex <codex@openai.com>
----
- recompiler-rs/src/bin/analyze.rs              |  12 +-
- recompiler-rs/src/decoder.rs                  | 213 +++++++++++++++++-
- recompiler-rs/src/insn.rs                     |  13 ++
- recompiler/snes65816.py                       |   8 +-
- recompiler/v2/decoder.py                      | 119 +++++++++-
- recompiler/v2/emit_function.py                |  36 ++-
- recompiler/v2/program_analysis.py             |  22 +-
- tests/v2/run_tests.py                         |   1 +
- tests/v2/test_direct_long_call_trampolines.py | 131 +++++++++++
- 9 files changed, 540 insertions(+), 15 deletions(-)
- create mode 100644 tests/v2/test_direct_long_call_trampolines.py
-
 diff --git a/recompiler-rs/src/bin/analyze.rs b/recompiler-rs/src/bin/analyze.rs
-index f827e49..81daa04 100644
+index 0a29280..b3f0909 100644
 --- a/recompiler-rs/src/bin/analyze.rs
 +++ b/recompiler-rs/src/bin/analyze.rs
-@@ -521,7 +521,12 @@ fn summarize(
+@@ -523,7 +523,12 @@ fn summarize(
              }
              continue;
          }
@@ -37,7 +16,7 @@ index f827e49..81daa04 100644
              Some((
                  "direct_call",
                  VariantKey::new(insn.operand, insn.m_flag, insn.x_flag),
-@@ -535,6 +540,11 @@ fn summarize(
+@@ -537,6 +542,11 @@ fn summarize(
                      insn.x_flag,
                  ),
              ))
@@ -50,7 +29,7 @@ index f827e49..81daa04 100644
              Some((
                  "direct_tail_call",
 diff --git a/recompiler-rs/src/decoder.rs b/recompiler-rs/src/decoder.rs
-index e29b3b8..647d64b 100644
+index 8627000..f8ca000 100644
 --- a/recompiler-rs/src/decoder.rs
 +++ b/recompiler-rs/src/decoder.rs
 @@ -181,6 +181,21 @@ impl FunctionDecodeGraph {
@@ -239,7 +218,7 @@ index e29b3b8..647d64b 100644
          if ins.dispatch_consumed_stack_bytes != 0 {
              return Some(-(ins.dispatch_consumed_stack_bytes as i32));
          }
-@@ -3518,6 +3634,93 @@ mod tests {
+@@ -4284,6 +4400,93 @@ mod tests {
          assert!(rts.successors.is_empty());
      }
  
@@ -365,10 +344,10 @@ index 72d680d..b5b6b8a 100644
              dispatch_local_goto: false,
              const_z_fold_unconditional: false,
 diff --git a/recompiler/snes65816.py b/recompiler/snes65816.py
-index 2cbc929..7e2116d 100644
+index cf9a0ed..ca486f2 100644
 --- a/recompiler/snes65816.py
 +++ b/recompiler/snes65816.py
-@@ -173,7 +173,9 @@ class Insn:
+@@ -193,7 +193,9 @@ class Insn:
                    'dispatch_forced_x', 'dispatch_consumed_stack_bytes',
                    'dispatch_configured_stack_bytes',
                    'const_z_fold_unconditional', 'const_z_fold_dead_pc24',
@@ -379,7 +358,7 @@ index 2cbc929..7e2116d 100644
  
      def __init__(self, addr, opcode, mnem, mode, operand, length):
          self.addr = addr
-@@ -236,6 +238,10 @@ class Insn:
+@@ -256,6 +258,10 @@ class Insn:
          # distinct from terminal_jsr: the target does not consume its frame as
          # inline data, and the exceptional target remains an LLE safety path.
          self.noreturn_jsr = False
@@ -391,10 +370,10 @@ index 2cbc929..7e2116d 100644
          self.x_flag = 1
          # Constant-Z branch fold: when set on a BEQ/BNE, the preceding
 diff --git a/recompiler/v2/decoder.py b/recompiler/v2/decoder.py
-index a2aef88..8f52e18 100644
+index 6600751..b868a3b 100644
 --- a/recompiler/v2/decoder.py
 +++ b/recompiler/v2/decoder.py
-@@ -1020,7 +1020,11 @@ def _labeled_successors(insn: Insn, key: DecodeKey, bank: int,
+@@ -1050,7 +1050,11 @@ def _labeled_successors(insn: Insn, key: DecodeKey, bank: int,
              (DecodeKey(addr24(bank, insn.operand), post_m, post_x, post_p_stack), 'jump'),
          ]
  
@@ -407,7 +386,7 @@ index a2aef88..8f52e18 100644
          if insn.mode == ABS:
              return [(DecodeKey(addr24(bank, insn.operand), post_m, post_x, post_p_stack), 'jump')]
          # INDIR / INDIR_X (table-dispatch) and LONG (cross-bank) — no
-@@ -1045,7 +1049,7 @@ def _labeled_successors(insn: Insn, key: DecodeKey, bank: int,
+@@ -1075,7 +1079,7 @@ def _labeled_successors(insn: Insn, key: DecodeKey, bank: int,
      # p_stack is preserved across JSR/JSL: the callee's own PHP/PLP is
      # internal to its body. A well-balanced callee leaves the caller's
      # PHP/PLP stack untouched.
@@ -416,7 +395,7 @@ index a2aef88..8f52e18 100644
          # Source-authoritative inline-return-address ABI.  This direct JSR's
          # callee consumes the frame as table data and never resumes lexical
          # fall-through, so it is terminal regardless of whether the callee has
-@@ -1056,9 +1060,15 @@ def _labeled_successors(insn: Insn, key: DecodeKey, bank: int,
+@@ -1086,9 +1090,15 @@ def _labeled_successors(insn: Insn, key: DecodeKey, bank: int,
          ret_m, ret_x = post_m, post_x
          target_pc24: Optional[int] = None
          if mnem == 'JSR' and insn.length == 3 and insn.mode != INDIR_X:
@@ -433,7 +412,7 @@ index a2aef88..8f52e18 100644
          # JSR/JSL to an INLINE-ARGUMENT routine: the callee reads its own
          # return address off the stack, consumes the N bytes that follow
          # the call as a parameter, and advances the stacked return address
-@@ -1172,6 +1182,83 @@ def _pea_ptrcall_return_pc(rom: Optional[bytes], bank: int, pc: int,
+@@ -1202,6 +1212,83 @@ def _pea_ptrcall_return_pc(rom: Optional[bytes], bank: int, pc: int,
      return (pea_operand + 1) & 0xFFFF
  
  
@@ -517,7 +496,7 @@ index a2aef88..8f52e18 100644
  def _detect_inline_arg_bytes_stack_slot(rom: bytes, bank: int, addr: int,
                                          entry_m: int = 1, entry_x: int = 1):
      """Detect whether the subroutine at (bank, addr) is a JSR/JSL
-@@ -1958,6 +2045,27 @@ def _decode_function_uncached(rom: bytes, bank: int, start: int,
+@@ -2223,6 +2310,27 @@ def _decode_function_uncached(rom: bytes, bank: int, start: int,
          insn.x_flag = key.x
          insn.data_region_exec = (
              (key.pc & 0xFFFFFF) in graph.data_region_exec_pcs)
@@ -545,7 +524,7 @@ index a2aef88..8f52e18 100644
          if (terminal_jsr_sites
                  and (insn.addr & 0xFFFFFF) in terminal_jsr_sites):
              if not (insn.mnem == 'JSR' and insn.mode != INDIR_X
-@@ -2778,7 +2886,8 @@ def _direct_tail_exit_keys(graph: 'FunctionDecodeGraph',
+@@ -3047,7 +3155,8 @@ def _direct_tail_exit_keys(graph: 'FunctionDecodeGraph',
      if outside:
          return outside
      if (ins.mnem == 'JMP' and ins.length == 4
@@ -555,7 +534,7 @@ index a2aef88..8f52e18 100644
          return [(ins.operand & 0xFFFFFF,
                   ins.m_flag & 1, ins.x_flag & 1)]
      return []
-@@ -2835,6 +2944,8 @@ def _return_stack_delta_states(
+@@ -3104,6 +3213,8 @@ def _return_stack_delta_states(
  
      def local_delta(ins) -> Optional[int]:
          mnem = ins.mnem
@@ -565,7 +544,7 @@ index a2aef88..8f52e18 100644
          if consumed:
              return -consumed
 diff --git a/recompiler/v2/emit_function.py b/recompiler/v2/emit_function.py
-index cb33963..599653e 100644
+index 2a72608..a1929bf 100644
 --- a/recompiler/v2/emit_function.py
 +++ b/recompiler/v2/emit_function.py
 @@ -1377,6 +1377,8 @@ def emit_function(rom: bytes, bank: int, start: int,
@@ -680,7 +659,7 @@ index e789afc..1e83706 100644
              target = VariantKey(insn.operand, insn.m_flag, insn.x_flag)
              resolution = (EdgeResolution.AOT_EXACT
 diff --git a/tests/v2/run_tests.py b/tests/v2/run_tests.py
-index 213443d..dabd45b 100644
+index ef212d4..0ae7065 100644
 --- a/tests/v2/run_tests.py
 +++ b/tests/v2/run_tests.py
 @@ -45,6 +45,7 @@ TEST_MODULES = [
@@ -828,6 +807,3 @@ index 0000000..0e6ce76
 +    assert "trampoline setup PHK skipped" in src
 +    assert "cpu->host_return_valid = 3" in src
 +    assert "bank_00_8200" in src
--- 
-2.54.0 (Apple Git-157)
-

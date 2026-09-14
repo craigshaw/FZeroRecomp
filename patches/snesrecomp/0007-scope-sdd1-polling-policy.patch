@@ -1,0 +1,60 @@
+diff --git a/runner/src/snes/interp_bridge.c b/runner/src/snes/interp_bridge.c
+index cc0f0d4..d646737 100644
+--- a/runner/src/snes/interp_bridge.c
++++ b/runner/src/snes/interp_bridge.c
+@@ -182,10 +182,11 @@ static int bridge_continuous_read(uint32_t adr) {
+     /* Devices in these windows advance from CPU/master time or from the read
+      * protocol itself. Repeating CPU registers around such a read is not a
+      * quiescent interrupt wait: keep executing so the device can answer. */
+-    /* Zero-page and direct-page reads are used by S-DD1 decompression
+-     * loops and other game logic that must not be mistaken for quiescent
+-     * polling.  Mark them dynamic so the epoch advances. */
+-    if (a < 0x2000) return 1;
++    /* Preserve the S-DD1 decompression workaround only on that cartridge.
++     * Ordinary WRAM can hold an interrupt-owned wait flag; treating every
++     * read as device progress prevents those loops from yielding. */
++    if (a < 0x2000 && g_snes && g_snes->cart &&
++        g_snes->cart->type == CART_SDD1) return 1;
+     if (a>=0x2134 && a<0x2180) return 1;       /* PPU counters + APU ports */
+     if (a>=0x3000 && a<0x3300) return 1;       /* GSU registers/cache */
+     if (a==0x4016 || a==0x4017 || a==0x4212) return 1;
+@@ -1416,12 +1417,9 @@ static int _interp_run_core(CpuState *cpu, uint32_t entry_pc24,
+         if (auto_quiescent) {
+             QuiescentState now;
+             memset(&now, 0, sizeof now);
+-            /* The captured architectural state is AFTER the instruction just
+-             * executed, so its matching PC is the interpreter's next PC, not
+-             * pc_before. This matters for a two-instruction hardware poll:
+-             * after the taken branch the CPU is parked on the register read.
+-             * Resuming at the branch would skip that read after NMI/IRQ and
+-             * stack the wrong interrupted PC. */
++            /* Capture matching PC and register state at this instruction
++             * boundary. On a stable cycle, resume at its poll read so an
++             * interrupt can change the sampled value before the branch. */
+             now.pc=((uint32_t)in.k << 16) | in.pc;
+             now.a=in.a; now.x=in.x; now.y=in.y;
+             now.sp=in.sp; now.dp=in.dp; now.db=in.db; now.k=in.k;
+diff --git a/tests/interp816/bridge_test.c b/tests/interp816/bridge_test.c
+index 342da25..f1c14e8 100644
+--- a/tests/interp816/bridge_test.c
++++ b/tests/interp816/bridge_test.c
+@@ -846,6 +846,19 @@ int main(void) {
+             "resume=$%06X exp $008000 (re-read wait source)",
+             (unsigned)interp_bridge_lle_resume_pc()); }
+ 
++    /* The S-DD1-specific low-WRAM rule must still prevent a false yield. */
++    { memset(RAM, 0, MEMSZ); init_cpu();
++      Cart cart = {0};
++      cart.type = CART_SDD1;
++      g_test_snes.cart = &cart;
++      uint8_t c[] = {0xAD,0x20,0x00,0xF0,0xFB};
++      load(0x8000, c, sizeof c);
++      int rc = interp_bridge_run_until_quiescent(&g_c, 0x008000);
++      printf("S10c S-DD1 low-WRAM reads retain their dynamic policy\n");
++      CHECK(rc == 0, "rc=%d exp 0 (no quiescent yield)", rc);
++      g_test_snes.cart = NULL;
++      interp_bridge_reset_dynamic_cache(); }
++
+     /* S11: a dispatch-table row with no exact AOT M/X body is a known LLE
+      * entry, not a mid-caller continuation.  cpu_dispatch_pc_from invokes
+      * this bridge after the prior RTS already popped, so the current S is the

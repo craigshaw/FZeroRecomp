@@ -1,21 +1,8 @@
-From 152c8d09fce00116412c9beceec1fe798e6268ba Mon Sep 17 00:00:00 2001
-From: Craig Shaw <craig@craigshaw.com>
-Date: Fri, 4 Sep 2026 17:06:31 +0100
-Subject: [PATCH 3/4] Prefer active interpreter ownership for mixed-tier
- returns
-
----
- recompiler/v2/codegen.py                   | 13 ++++++++-----
- recompiler/v2/emit_function.py             |  8 ++++----
- tests/v2/test_hle_spc_upload_return_abi.py |  5 +++++
- tests/v2/test_nlr_idiom.py                 |  5 +++++
- 4 files changed, 22 insertions(+), 9 deletions(-)
-
 diff --git a/recompiler/v2/codegen.py b/recompiler/v2/codegen.py
-index b693746..20e4b01 100644
+index 0d6d674..970cc15 100644
 --- a/recompiler/v2/codegen.py
 +++ b/recompiler/v2/codegen.py
-@@ -2390,17 +2390,20 @@ def _emit_return(op: Return) -> List[str]:
+@@ -2459,17 +2459,20 @@ def _emit_return(op: Return) -> List[str]:
          # Intentionally not gated by cpu_dispatch_has_entry(): a popped PC can
          # be both a valid continuation entry and a return-to-ancestor target.
          "  if (_ret_s != _entry_s) {",
@@ -42,7 +29,7 @@ index b693746..20e4b01 100644
          # g_recomp_stack. Return the real popped continuation to that owning
          # bridge instead of creating a new dispatch root and then resuming code
 diff --git a/recompiler/v2/emit_function.py b/recompiler/v2/emit_function.py
-index 599653e..c75fb17 100644
+index a1929bf..5e08e4a 100644
 --- a/recompiler/v2/emit_function.py
 +++ b/recompiler/v2/emit_function.py
 @@ -550,15 +550,15 @@ def emit_function(rom: bytes, bank: int, start: int,
@@ -51,7 +38,7 @@ index 599653e..c75fb17 100644
              "    if (_ret_s != _entry_s && !cpu_dispatch_has_entry(cpu, _rpc24)) {",
 +            "      if (interp_bridge_return_targets_owner(_ret_s, cpu->S)) {",
 +            "        cpu_trace_mark_nlr_exit(BD_EXIT_KIND_TRAMPOLINE);",
-+            "        RecompStackPop();",
++            "        RecompStackPopYield();",
 +            "        return interp_bridge_lle_yield_unwind(cpu, _rpc24);  /* HLE RTS return-to-interpreter-owner */ }",
              "      int _anc_skip = cpu_resolve_ancestor_skip(_ret_s);",
              "      if (_anc_skip >= 0) {",
@@ -60,7 +47,7 @@ index 599653e..c75fb17 100644
              "        return (RecompReturn)_anc_skip;  /* HLE RTS return-to-ancestor */ }",
 -            "      if (interp_bridge_return_targets_owner(_ret_s, cpu->S)) {",
 -            "        cpu_trace_mark_nlr_exit(BD_EXIT_KIND_TRAMPOLINE);",
--            "        RecompStackPop();",
+-            "        RecompStackPopYield();",
 -            "        return interp_bridge_lle_yield_unwind(cpu, _rpc24);  /* HLE RTS return-to-interpreter-owner */ }",
              "    }",
              "    cpu_trace_mark_nlr_exit(BD_EXIT_KIND_TRAMPOLINE);",
@@ -97,6 +84,3 @@ index 3791129..4f1c895 100644
      assert "interp_bridge_has_direct_paired_bounce" in src
      assert "interp_tier_dispatch_rewritten_return" in src
      assert "RECOMP_RETURN_SKIP_1" not in src
--- 
-2.50.1 (Apple Git-155)
-

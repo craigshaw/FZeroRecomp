@@ -21,20 +21,23 @@ Dma *g_dma = &dma;
 CpuState g_cpu;
 uint8 g_ram[0x20000], g_snesrecomp_last_hdmaen;
 const uint8 *g_rom;
-int g_host_owns_hdma;
+void snes_set_hdma_beam_enabled(Snes *s, bool enabled) {
+    CHECK(s == &snes);
+    s->hdmaBeamOff = !enabled;
+}
 static int targets[4], current_line, stage, dma_channel, hdma_row;
 static unsigned draws, captures, irqs, pushes;
 static unsigned modes[225], colours[225];
 
 void dma_startDma(Dma *d, uint8 mask, bool hdma) {
-    CHECK(g_host_owns_hdma && d == &dma && mask == 0xfe && hdma);
+    CHECK(snes.hdmaBeamOff && d == &dma && mask == 0xfe && hdma);
 }
 void SimpleHdma_Init(SimpleHdma *c, DmaChannel *d) {
-    CHECK(g_host_owns_hdma);
+    CHECK(snes.hdmaBeamOff);
     c->mode = d - dma.channel;
 }
 void ppu_runLine(Ppu *p, int line) {
-    CHECK(g_host_owns_hdma && p == &ppu && line == (int)draws);
+    CHECK(snes.hdmaBeamOff && p == &ppu && line == (int)draws);
     CHECK(stage == 0 && hdma_row == line);
     current_line = line;
     modes[line] = p->bgmode;
@@ -50,7 +53,7 @@ void FZeroLayersProcessLine(FZeroLayers *l, const Ppu *p, int line, bool r, bool
     stage = 2;
 }
 void SimpleHdma_DoLine(SimpleHdma *c) {
-    CHECK(g_host_owns_hdma && stage == 2 && c->mode == dma_channel);
+    CHECK(snes.hdmaBeamOff && stage == 2 && c->mode == dma_channel);
     if (++dma_channel == 8) {
         dma_channel = 0;
         ++hdma_row;
@@ -63,7 +66,7 @@ void cpu_write8(CpuState *c, uint8 bank, uint16 address, uint8 value) {
     ++pushes;
 }
 void bank_00_8601(CpuState *c) {
-    CHECK(g_host_owns_hdma && snes.inIrq && stage == 0);
+    CHECK(snes.hdmaBeamOff && snes.inIrq && stage == 0);
     CHECK(irqs < 4 && current_line == targets[irqs]);
     CHECK(hdma_row == current_line + 1 && pushes == (irqs + 1) * 4);
     CHECK(c->S == 0x1ff - 4);
@@ -176,9 +179,10 @@ static void CheckSceneTransitions(void) {
     CHECK(!FZeroSceneTitle(NULL));
 }
 
-static void Run(bool enabled, int first) {
+static void Run(bool enabled, int first, bool beam_enabled) {
     memset(&snes,0,sizeof(snes)); memset(&ppu,0,sizeof(ppu));
     memset(&g_cpu,0,sizeof(g_cpu)); memset(g_ram,0,sizeof(g_ram));
+    snes.hdmaBeamOff = !beam_enabled;
     draws=captures=irqs=pushes=0;
     stage=dma_channel=hdma_row=0;
     targets[0]=first; targets[1]=19; targets[2]=43; targets[3]=91;
@@ -191,7 +195,7 @@ static void Run(bool enabled, int first) {
     g_ram[0xc3]=1; /* Next guest state must not override the uploaded policy. */
     FZeroSetLayers(&layers);
     FZeroDrawPpuFrame();
-    CHECK(!g_host_owns_hdma && !snes.inIrq);
+    CHECK(snes.hdmaBeamOff == !beam_enabled && !snes.inIrq);
     CHECK(draws==225 && captures==225 && hdma_row==225);
     CHECK(irqs==(enabled?4:0) && g_cpu.S==0x1ff);
     for(int line=0;line<=224;++line) {
@@ -202,9 +206,10 @@ static void Run(bool enabled, int first) {
     }
 }
 int main(void) {
-    Run(true,7);
-    Run(true,0); /* Pre-render IRQ affects the first visible row. */
-    Run(false,7);
+    Run(true,7,true);
+    Run(true,7,false); /* Preserve a caller that already disabled beam HDMA. */
+    Run(true,0,true); /* Pre-render IRQ affects the first visible row. */
+    Run(false,7,true);
     CheckSceneTransitions();
     FZeroSetLayers(NULL);
     puts("raster timing tests: passed");

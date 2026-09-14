@@ -1,9 +1,9 @@
 diff --git a/tests/test_tier2_ingest.py b/tests/test_tier2_ingest.py
 new file mode 100644
-index 0000000..dfac2ce
+index 0000000..cdc6fe5
 --- /dev/null
 +++ b/tests/test_tier2_ingest.py
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,90 @@
 +import json
 +from pathlib import Path
 +import subprocess
@@ -85,11 +85,20 @@ index 0000000..dfac2ce
 +    assert "-- MISSING EXACT CALL VARIANTS: 0 site(s) --" in output
 +    assert "-- DECLARED CALL GAPS: 1 site(s) --" in output
 +    assert "target $00F806 M1X1" in output
++
++
++def test_optional_call_boundary_preserves_observed_entry_width():
++    import tempfile
++    with tempfile.TemporaryDirectory() as temp:
++        output = run_ingest(Path(temp), [
++            discovery("0x008000", "0x009000", "M0X0", "call_gap"),
++        ], "bank = 00\n")
++    assert "func bank_00_9000 9000 entry_mx:0,0" in output
 diff --git a/tools/tier2_ingest.py b/tools/tier2_ingest.py
-index 4a89f26..92f7b2f 100644
+index 338280e..c80385c 100644
 --- a/tools/tier2_ingest.py
 +++ b/tools/tier2_ingest.py
-@@ -15,17 +15,21 @@ PRINTS paste-ready directives; it does not edit cfgs. A human stays between
+@@ -15,22 +15,21 @@ PRINTS paste-ready directives; it does not edit cfgs. A human stays between
  "observed at runtime" and "trusted as code," which is the project discipline
  (no laundering a runtime mis-execution into a static translation).
  
@@ -98,12 +107,17 @@ index 4a89f26..92f7b2f 100644
 -  BOUNDARY     The interpreter ran the gap and returned cleanly (clean_hits>0,
 -               bail_hits==0): a genuine coverage gap, safe to profile.
 -                 * target has no existing `func`  -> emit
--                   an optional `func bank_BB_AAAA <addr16>` boundary for
--                   naming/slicing. A `func` declaration is not an AOT root.
+-                   an optional `func bank_BB_AAAA <addr16> entry_mx:M,X`
+-                   boundary. A `func` declaration becomes a reachability root
+-                   only when generation runs with --cfg-roots; without it the
+-                   declaration names the address but does not grow coverage.
 -                 * target IS already a `func`     -> the gap is the dispatch
--                   SITE; it needs an indirect_dispatch / indirect_call_table
--                   authorization. Flagged (NOT auto-written -- the index
--                   register and table layout aren't in a runtime tier-down).
+-                   SITE; it needs an `indirect_dispatch` authorization.
+-                   Flagged (NOT auto-written -- the index register and table
+-                   layout aren't in a runtime tier-down).
+-                   NOTE: `indirect_call_table` is NOT a cfg directive. It is a
+-                   decoder parameter name; no cfg parser implements it, so a
+-                   pasted `indirect_call_table` line is silently ignored.
 +Discoveries split into evidence-specific buckets:
 +
 +  CALL GAP     A direct call reached a missing exact (PC,M,X) variant, an
@@ -122,7 +136,7 @@ index 4a89f26..92f7b2f 100644
  
    INVESTIGATE  The interpreter BAILED (bail_hits>0): it could not run the
                 target -- e.g. a garbage indirect target from upstream recomp-
-@@ -37,11 +41,12 @@ Site kinds (2026-07-02 additions): besides the tier-down kinds
+@@ -42,11 +41,12 @@ Site kinds (2026-07-02 additions): besides the tier-down kinds
  (indirect_dispatch / indirect_goto / bank_miss), the bridge now records
  in-bridge sightings -- `call_gap` (an interpreted JSR/JSL whose target has no
  compiled variant) and `goto_gap` (an indirect JMP/JML landing with none).
@@ -140,7 +154,7 @@ index 4a89f26..92f7b2f 100644
  
  Usage:
    python tools/tier2_ingest.py [manifest.json] [--cfg-dir recomp]
-@@ -55,6 +60,9 @@ import sys
+@@ -60,13 +60,12 @@ import sys
  from collections import defaultdict
  
  FUNC_RE = re.compile(r'^\s*func\s+(\S+)\s+([0-9A-Fa-f]+)')
@@ -150,7 +164,14 @@ index 4a89f26..92f7b2f 100644
  BANK_FILE_RE = re.compile(r'bank([0-9A-Fa-f]{2})\.cfg$')
  
  
-@@ -75,28 +83,52 @@ def parse_pc24(s):
+-
+-# "M0X0" -> ("0", "0"): the entry width a discovery was observed at.
+-MX_RE = re.compile(r"M([01])X([01])")
+-
+ def load_manifest(path):
+     with open(path, 'r', encoding='utf-8') as f:
+         m = json.load(f)
+@@ -84,28 +83,52 @@ def parse_pc24(s):
  
  
  def scan_cfg_funcs(cfg_dir):
@@ -215,7 +236,7 @@ index 4a89f26..92f7b2f 100644
  
  
  def main():
-@@ -117,13 +149,17 @@ def main():
+@@ -126,13 +149,17 @@ def main():
          return 2
  
      m = load_manifest(args.manifest)
@@ -238,7 +259,7 @@ index 4a89f26..92f7b2f 100644
  
      for d in discoveries:
          clean = int(d.get('clean_hits', 0))
-@@ -135,14 +171,25 @@ def main():
+@@ -144,14 +171,25 @@ def main():
          if bail > 0:
              investigate.append(d)
              continue
@@ -268,7 +289,7 @@ index 4a89f26..92f7b2f 100644
  
      # -- report ------------------------------------------------------------
      out = sys.stdout.write
-@@ -159,13 +206,14 @@ def main():
+@@ -168,13 +206,14 @@ def main():
              "(For a fully-covered game that's the expected dormant state.)\n")
          return 0
  
@@ -285,18 +306,30 @@ index 4a89f26..92f7b2f 100644
      if not n_promote:
          out("  (none)\n")
      for bank in sorted(promote_func):
-@@ -181,22 +229,72 @@ def main():
-                 f"from site $%06X, first frame {d.get('first_frame','?')}\n"
+@@ -191,7 +230,7 @@ def main():
+             # width the guest never enters it at, and the variant that actually
+             # runs stays interpreted. Emit the observed mode explicitly.
+             mx = str(d.get('entry_mx', ''))
+-            m_ = MX_RE.fullmatch(mx)
++            m_ = re.fullmatch(r"M([01])X([01])", mx)
+             if m_:
+                 mx_tok = f" entry_mx:{m_.group(1)},{m_.group(2)}"
+                 mx_note = ""
+@@ -205,24 +244,73 @@ def main():
+                 f"{mx_note}\n"
                  % site)
  
 -    # SITE NEEDS AUTHORIZATION: target is already a func, the dispatch site isn't.
 -    out(f"\n-- SITE NEEDS DISPATCH AUTHORIZATION: {len(site_needs_auth)} "
 -        f"site(s) --\n")
 -    out("  (target already has a `func`; the indirect SITE needs an\n"
--        "   indirect_dispatch/indirect_call_table directive. The index reg +\n"
+-        "   `indirect_dispatch` directive -- NOT `indirect_call_table`, which\n"
+-        "   no cfg parser implements and which is silently ignored if pasted.\n"
+-        "   The index reg +\n"
 -        "   table layout aren't in the runtime manifest, so verify against the\n"
 -        "   disassembly before authorizing -- not auto-generated.)\n")
 -    if not site_needs_auth:
++
 +    out(f"\n-- MISSING EXACT CALL VARIANTS: {len(missing_variants)} site(s) --\n")
 +    out("  (the function address is declared, but not at the observed M/X.\n"
 +        "   --profile-manifest can materialize the exact observed variant.)\n")
@@ -371,7 +404,7 @@ index 4a89f26..92f7b2f 100644
  
      # INVESTIGATE: bailed sites are bug leads, not promotion candidates.
      out(f"\n-- INVESTIGATE: {len(investigate)} bailed site(s) "
-@@ -219,9 +317,9 @@ def main():
+@@ -245,9 +333,9 @@ def main():
  
      out("\n" + "=" * 72 + "\n")
      out("Regenerate with `--profile-manifest` and rebuild. Add a printed func\n"

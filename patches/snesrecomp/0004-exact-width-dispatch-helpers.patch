@@ -1,21 +1,8 @@
-From 028450f8a72d81b3b2bcc22f9f9e63d542168d94 Mon Sep 17 00:00:00 2001
-From: Craig Shaw <craig@craigshaw.com>
-Date: Fri, 4 Sep 2026 17:06:36 +0100
-Subject: [PATCH 4/4] Decode dispatch helpers at observed entry widths
-
----
- recompiler/v2/decoder.py                     |  5 ++-
- tests/v2/test_dispatch_helper_entry_width.py | 33 ++++++++++++++++
- tools/v2_analyze.py                          | 40 +++++++++++++++-----
- tools/v2_regen.py                            | 24 ++++++++----
- 4 files changed, 82 insertions(+), 20 deletions(-)
- create mode 100644 tests/v2/test_dispatch_helper_entry_width.py
-
 diff --git a/recompiler/v2/decoder.py b/recompiler/v2/decoder.py
-index 8737664..4c723c5 100644
+index b868a3b..6e84173 100644
 --- a/recompiler/v2/decoder.py
 +++ b/recompiler/v2/decoder.py
-@@ -1576,7 +1576,8 @@ def detect_inline_arg_bytes(rom: bytes, bank: int, addr: int,
+@@ -1841,7 +1841,8 @@ def detect_inline_arg_bytes(rom: bytes, bank: int, addr: int,
      return detect_dp_return_inline_arg_bytes(rom, bank, addr)
  
  
@@ -25,7 +12,7 @@ index 8737664..4c723c5 100644
      """Identify whether the subroutine at (bank, addr) is a JSL-jump-table
      dispatch helper. Returns 'short' (16-bit table entries), 'long'
      (24-bit table entries), or None.
-@@ -1596,7 +1597,7 @@ def classify_dispatch_helper(rom: bytes, bank: int, addr: int):
+@@ -1861,7 +1862,7 @@ def classify_dispatch_helper(rom: bytes, bank: int, addr: int):
                              INDIR_L)
      insns = []
      pc = addr & 0xFFFF
@@ -170,10 +157,10 @@ index 3fad687..6045610 100644
                  and before_poisoned == poisoned_variants)
              active_exit_modes = next_exit_modes
 diff --git a/tools/v2_regen.py b/tools/v2_regen.py
-index 60bad96..3a60423 100644
+index fd5448c..f64e4f0 100644
 --- a/tools/v2_regen.py
 +++ b/tools/v2_regen.py
-@@ -1305,7 +1305,7 @@ def main() -> int:
+@@ -1315,7 +1315,7 @@ def main() -> int:
      _phase("dispatch_helper_discovery")
      print("Auto-detecting JSL dispatch helpers...")
      dispatch_helpers: dict = {}
@@ -182,7 +169,7 @@ index 60bad96..3a60423 100644
      call_targets: set = set()   # every JSR/JSL target (for inline-arg scan)
      for bank, _cfg_path, cfg in parsed:
          for entry in cfg.entries:
-@@ -1320,22 +1320,30 @@ def main() -> int:
+@@ -1330,22 +1330,30 @@ def main() -> int:
                  ins = di.insn
                  # JSL or JML (JMP LONG)
                  if ins.mnem == 'JSL':
@@ -220,6 +207,3 @@ index 60bad96..3a60423 100644
  
      # Auto-detect JSR/JSL INLINE-ARGUMENT routines (no cfg hint — the
      # byte count is a property of the callee's own code; see
--- 
-2.50.1 (Apple Git-155)
-

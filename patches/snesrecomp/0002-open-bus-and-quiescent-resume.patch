@@ -1,50 +1,24 @@
-From dc5ee0672f98a22d2cb75773fd655f345ce10d85 Mon Sep 17 00:00:00 2001
-From: Craig Shaw <craig@craigshaw.com>
-Date: Fri, 4 Sep 2026 17:06:24 +0100
-Subject: [PATCH 2/4] Fix open-bus polling and quiescent resume
-
----
- runner/src/common_rtl.c                      |  9 +++--
- runner/src/snes/interp_bridge.c              | 38 ++++++++++++++++++--
- runner/src/snes/snes_regs.h                  | 17 ++++++---
- tests/interp816/bridge_test.c                | 18 ++++++++++
- tests/run_c_tests.sh                         | 20 +++++++----
- tests/runtime_dispatch/rdnmi_open_bus_test.c | 23 ++++++++++++
- 6 files changed, 110 insertions(+), 15 deletions(-)
- create mode 100644 tests/runtime_dispatch/rdnmi_open_bus_test.c
-
 diff --git a/runner/src/common_rtl.c b/runner/src/common_rtl.c
-index 0f61c45..48a0fbe 100644
+index 9fb853e..5888d1d 100644
 --- a/runner/src/common_rtl.c
 +++ b/runner/src/common_rtl.c
-@@ -880,7 +880,7 @@ uint8 ReadRegOpenBus(uint16 reg, uint8 open_bus) {
-     return snes_read(g_snes, reg);
-   } else if (reg == 0x2180) {
-     return snes_readBBus(g_snes, reg & 0xff);
--  } else if (reg == 0x4016 || reg == 0x4017) {
-+  } else if (reg == 0x4016 || reg == 0x4017) {
-     /* JOYSER0 / JOYSER1 — manual joypad-read serial registers.
-      * Routed through snes_readReg so the SNES core can return the
-      * controller-presence signature (bit 0 set after the implicit
-@@ -889,8 +889,11 @@ uint8 ReadRegOpenBus(uint16 reg, uint8 open_bus) {
-      * default `return 0` and breaking SMW's CheckWhichControllers-
+@@ -1479,7 +1479,10 @@ uint8 ReadRegOpenBus(uint16 reg, uint8 open_bus) {
       * ArePluggedIn detection. */
      return snes_readReg(g_snes, reg);
--  } else if (reg >= 0x4200 && reg < 0x4220) {
+   } else if (reg >= 0x4200 && reg < 0x4220) {
 -    return recomp_read_internal_reg(reg);
-+  } else if (reg >= 0x4200 && reg < 0x4220) {
 +    uint8 value = recomp_read_internal_reg(reg);
 +    if (reg == RDNMI)
 +      value = snes_rdnmi_merge_open_bus(value, open_bus);
 +    return value;
    } else if (reg >= 0x4300 && reg < 0x4380) {
      return dma_read(g_dma, reg);
-   }
+   } else if (reg >= 0x4800 && reg < 0x4808 &&
 diff --git a/runner/src/snes/interp_bridge.c b/runner/src/snes/interp_bridge.c
-index ee79909..c648f06 100644
+index 517df5e..cc0f0d4 100644
 --- a/runner/src/snes/interp_bridge.c
 +++ b/runner/src/snes/interp_bridge.c
-@@ -836,7 +836,14 @@ static int _interp_run_core(CpuState *cpu, uint32_t entry_pc24,
+@@ -1416,7 +1416,14 @@ static int _interp_run_core(CpuState *cpu, uint32_t entry_pc24,
          if (auto_quiescent) {
              QuiescentState now;
              memset(&now, 0, sizeof now);
@@ -60,7 +34,7 @@ index ee79909..c648f06 100644
              now.sp=in.sp; now.dp=in.dp; now.db=in.db; now.k=in.k;
              now.c=in.c; now.z=in.z; now.v=in.v; now.n=in.n; now.i=in.i;
              now.d=in.d; now.mf=in.mf; now.xf=in.xf; now.e=in.e;
-@@ -864,7 +871,34 @@ static int _interp_run_core(CpuState *cpu, uint32_t entry_pc24,
+@@ -1444,7 +1451,34 @@ static int _interp_run_core(CpuState *cpu, uint32_t entry_pc24,
                           * and could starve rendering.  Live MMIO polls are not
                           * mistaken for this path: continuous_read_epoch changes
                           * on every such read. */
@@ -93,21 +67,17 @@ index ee79909..c648f06 100644
 +                        } else {
 +                            s_lle_resume_pc24 = pc_before;
 +                        }
-                         sync_interp_to_cpu(&in,cpu);
-                         bridge_apu_flush(cpu);
-                         return 1;
+                         s_lle_quiescent_yield = 1;
+                         /* Flush accumulated SPC time BEFORE yielding so the
+                          * SPC700 processes any pending port writes (Star Ocean
 diff --git a/runner/src/snes/snes_regs.h b/runner/src/snes/snes_regs.h
-index 86788e9..f782536 100644
+index dd8aa45..8e048e7 100644
 --- a/runner/src/snes/snes_regs.h
 +++ b/runner/src/snes/snes_regs.h
-@@ -1,8 +1,17 @@
- #ifndef SNES_SNES_REGS_H_
+@@ -6,6 +6,15 @@
  #define SNES_SNES_REGS_H_
--#pragma once
--
--typedef enum SnesRegs {
-+#pragma once
-+
+ #pragma once
+ 
 +/* RDNMI ($4210) drives bit 7 and the four CPU-version bits. Bits 4-6 are
 + * undriven and retain the CPU data-bus value. Keep this tiny helper beside the
 + * register definition so both the runtime and ROM-free regression tests use
@@ -117,22 +87,14 @@ index 86788e9..f782536 100644
 +  return (unsigned char)((driven & 0x8f) | (open_bus & 0x70));
 +}
 +
-+typedef enum SnesRegs {
+ typedef enum SnesRegs {
    INIDISP = 0x2100,
    OBSEL = 0x2101,
-   OAMADDL = 0x2102,
-@@ -216,4 +225,4 @@ typedef enum SnesRegs {
-   MIRR7 = 0x437F,
- } SnesRegs;
- 
--#endif  // SNES_SNES_REGS_H_
-\ No newline at end of file
-+#endif  // SNES_SNES_REGS_H_
 diff --git a/tests/interp816/bridge_test.c b/tests/interp816/bridge_test.c
-index 9f00f21..1c2b100 100644
+index 1fb5639..342da25 100644
 --- a/tests/interp816/bridge_test.c
 +++ b/tests/interp816/bridge_test.c
-@@ -724,6 +724,24 @@ int main(void) {
+@@ -828,6 +828,24 @@ int main(void) {
        CHECK(rc2 == 1, "second rc=%d exp 1 (input observed)", rc2);
        CHECK(g_c.S == 0x01FF, "return S=%04X exp 01FF (balanced)", g_c.S); }
  
@@ -158,43 +120,11 @@ index 9f00f21..1c2b100 100644
       * entry, not a mid-caller continuation.  cpu_dispatch_pc_from invokes
       * this bridge after the prior RTS already popped, so the current S is the
 diff --git a/tests/run_c_tests.sh b/tests/run_c_tests.sh
-index 8afbd3b..af73c2c 100644
+index 3b7968b..7b16d14 100644
 --- a/tests/run_c_tests.sh
 +++ b/tests/run_c_tests.sh
-@@ -7,9 +7,11 @@ OUT="$ROOT/build/c-tests"
- CC="${CC:-gcc}"
- mkdir -p "$OUT"
- 
--LAUNCHER_LIBS=()
-+LAUNCHER_LIBS=""
-+GC_SECTIONS_LINKER="-Wl,--gc-sections"
- case "$(uname -s)" in
--    MINGW*|MSYS*) LAUNCHER_LIBS=(-lcomdlg32) ;;
-+    Darwin) GC_SECTIONS_LINKER="-Wl,-dead_strip" ;;
-+    MINGW*|MSYS*) LAUNCHER_LIBS="-lcomdlg32" ;;
- esac
- 
- echo "=== launcher ==="
-@@ -23,7 +25,7 @@ echo "=== launcher ==="
-     "$ROOT/runner/src/host_paths.c" \
-     "$ROOT/runner/src/crc32.c" \
-     "$ROOT/runner/src/sha256.c" \
--    "${LAUNCHER_LIBS[@]}" \
-+    $LAUNCHER_LIBS \
-     -o "$OUT/launcher_test"
- "$OUT/launcher_test"
- 
-@@ -55,7 +57,7 @@ echo "=== DMA / HDMA ==="
-     "$ROOT/tests/dma/hdma_timing_test.c" \
-     "$ROOT/runner/src/snes/dma.c" \
-     "$ROOT/runner/src/snes/snes.c" \
--    -Wl,--gc-sections -o "$OUT/hdma_timing_test"
-+    $GC_SECTIONS_LINKER -o "$OUT/hdma_timing_test"
- "$OUT/hdma_timing_test"
- 
- echo "=== interpreter and bridge ==="
-@@ -159,6 +161,12 @@ echo "=== automatic joypad register byte order ==="
- "$OUT/auto_joypad_test"
+@@ -194,6 +194,11 @@ echo "=== Super Multitap protocol ==="
+ "$OUT/multitap_test"
  
  echo "=== runtime dispatch ==="
 +"$CC" -std=c11 -Wall -Wextra -Werror -O1 \
@@ -202,26 +132,9 @@ index 8afbd3b..af73c2c 100644
 +    "$ROOT/tests/runtime_dispatch/rdnmi_open_bus_test.c" \
 +    -o "$OUT/rdnmi_open_bus_test"
 +"$OUT/rdnmi_open_bus_test"
-+
  "$CC" -std=c11 -Wall -Wextra -ffunction-sections -fdata-sections \
      -I "$ROOT/runner/src" -I "$ROOT/runner/src/snes" \
      "$ROOT/tests/runtime_dispatch/known_lle_entry_test.c" \
-@@ -169,7 +177,7 @@ echo "=== runtime dispatch ==="
-     "$ROOT/runner/src/snes/dsp1_hle.c" \
-     "$ROOT/runner/src/snes/sa1.c" \
-     "$ROOT/runner/src/snes/interp816.c" \
--    -Wl,--gc-sections -lm -o "$OUT/known_lle_entry_test"
-+    $GC_SECTIONS_LINKER -lm -o "$OUT/known_lle_entry_test"
- "$OUT/known_lle_entry_test"
- 
- echo "=== APU guest-time pacing ==="
-@@ -181,5 +189,5 @@ echo "=== APU guest-time pacing ==="
-     "$ROOT/runner/src/snes/apu.c" \
-     "$ROOT/runner/src/snes/spc.c" \
-     "$ROOT/runner/src/snes/dsp.c" \
--    -Wl,--gc-sections -o "$OUT/apu_port_guest_time_test"
-+    $GC_SECTIONS_LINKER -o "$OUT/apu_port_guest_time_test"
- "$OUT/apu_port_guest_time_test"
 diff --git a/tests/runtime_dispatch/rdnmi_open_bus_test.c b/tests/runtime_dispatch/rdnmi_open_bus_test.c
 new file mode 100644
 index 0000000..7501713
@@ -251,6 +164,3 @@ index 0000000..7501713
 +    puts("rdnmi_open_bus_test: ok");
 +  return failures != 0;
 +}
--- 
-2.50.1 (Apple Git-155)
-
