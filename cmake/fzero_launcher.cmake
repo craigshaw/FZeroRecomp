@@ -1,4 +1,4 @@
-# Keep F-Zero's controls in the host. Apply the narrow rendering adapter to
+# Keep F-Zero's controls and save handling in the host. Apply the adapter to
 # a build-local copy, leaving the pinned recomp-ui checkout untouched.
 function(fzero_target_launcher target)
     find_package(Git REQUIRED)
@@ -18,5 +18,6 @@ function(fzero_target_launcher target)
     get_target_property(sources ${target} SOURCES)
     list(REMOVE_ITEM sources "${upstream}")
     set_property(TARGET ${target} PROPERTY SOURCES "${sources}")
-    target_sources(${target} PRIVATE "${directory}/launcher_imgui.cpp" src/launcher_settings.c)
+    target_sources(${target} PRIVATE "${directory}/launcher_imgui.cpp"
+        src/launcher_settings.c src/launcher_saves.c)
 endfunction()

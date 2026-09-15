@@ -69,6 +69,11 @@ while preserving your settings, `saves/`, and `screenshots/` folders. Existing
 settings take precedence over the new first-boot defaults. The release includes
 a `.zip.sha256` checksum file for each download.
 
+To use an existing battery save, select **Import** in the launcher and choose
+your `.srm` or `.sav` file. A confirmation appears when the import succeeds;
+press **Play** to load it. Import creates the saves folder on first use and
+backs up an existing save as `saves/save.srm.bak` before replacing it.
+
 ### macOS
 
 1. Download `FZeroRecomp-v0.2.0-macOS-arm64.zip` from the release's **Assets**.

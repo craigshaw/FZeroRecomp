@@ -1,14 +1,41 @@
 --- a/launcher_imgui.cpp
 +++ b/launcher_imgui.cpp
-@@ -10,6 +10,7 @@
+@@ -10,6 +10,8 @@
  //   (2) Live resize: immediate mode redraws every frame; a logical-width
  //       breakpoint switches the dashboard between two columns and one column.
  
 +#include "launcher_settings.h"
++#include "launcher_saves.h"
  #include "launcher_backend.h"
  #include "launcher_boot_timing.h"
  #include "launcher_gl.h"
-@@ -1935,6 +1936,8 @@
+@@ -1427,13 +1429,21 @@
+     if (ImGui::Button("Import", ImVec2(bw, px(30)))) {
+         char buf[512];
+         if (launcher_pick_file("Import SRAM save", kSramPatterns, 2,
+-                               "Battery save (.srm .sav)", buf, sizeof(buf)))
+-            launcher_model_import_sram(m, buf);   // backs up existing to .bak, then copies in
++                               "Battery save (.srm .sav)", buf, sizeof(buf))) {
++            char error[1024];
++            const bool ok = FZeroImportSave(buf, error, sizeof(error)) != 0;
++            SDL_ShowSimpleMessageBox(ok ? SDL_MESSAGEBOX_INFORMATION : SDL_MESSAGEBOX_ERROR,
++                ok ? "Save imported" : "Save import failed",
++                ok ? "Save imported successfully. Press Play to load it." : error, nullptr);
++        }
+     }
+     ImGui::SameLine(0, px(th.spacing_sm));
+     ImGui::BeginDisabled(!has_save);              // nothing to clear when no save exists
+-    if (ImGui::Button(ui_text("Clear"), ImVec2(bw, px(30))))
+-        launcher_model_clear_sram(m);             // backs up to .bak, then deletes
++    if (ImGui::Button(ui_text("Clear"), ImVec2(bw, px(30)))) {
++        char error[1024];
++        if (!FZeroClearSave(error, sizeof(error)))
++            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Cannot clear save", error, nullptr);
++    }
+     ImGui::EndDisabled();
+ }
+ 
+@@ -1935,6 +1945,8 @@
  // keyboard entry splits into "Keyboard + Mouse" (mouse-aim on) and "Keyboard"
  // (off); otherwise it is the single legacy "Keyboard" entry, byte-for-byte
  // identical to before for every non-mouse game.
@@ -17,7 +44,7 @@
  void draw_source_selectables(LauncherModel* m, int p) {
      const SystemProfile* src_prof = (const SystemProfile*)m->profile;
      const bool psx = src_prof && src_prof->id && !strcmp(src_prof->id, "psx");
-@@ -2167,7 +2170,7 @@
+@@ -2167,7 +2179,7 @@
  
      ImGui::SetNextItemWidth(cw);
      if (ImGui::BeginCombo("##src", ui_text(launcher_model_player_src_label(m, p)))) {
@@ -26,7 +53,7 @@
          ImGui::EndCombo();
      }
      ImGui::Dummy(ImVec2(0, px(4)));
-@@ -2839,15 +2842,8 @@
+@@ -2839,15 +2851,8 @@
  // row_h band with no_scroll (legacy minimal surface) — exactly the sizing
  // draw_settings used to pick inline, now co-located with its own content.
  void panel_video_draw(LauncherModel* m, const LauncherTheme* th) {
@@ -44,7 +71,7 @@
  }
  
  void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
-@@ -3316,7 +3312,7 @@
+@@ -3316,7 +3321,7 @@
      }
  }
  void panel_hotkeys_draw(LauncherModel* m, const LauncherTheme* th) {
@@ -53,7 +80,7 @@
      end_panel();
  }
  
-@@ -3344,7 +3340,7 @@
+@@ -3344,7 +3349,7 @@
                                        // universal Fullscreen row joined scale/
                                        // filter/widescreen on the legacy surface)
  
@@ -62,7 +89,7 @@
      const bool deep_audio   = m->has_spu_hq || m->num_languages > 0 || m->num_audio_devices > 0;   /* deadzone moved to controller card */
  
      const LauncherPanel* video_p   = find_composed(prof->panels_settings, "video", m);
-@@ -3696,7 +3692,7 @@
+@@ -3696,7 +3701,7 @@
          row_label("Input source", th);
          ImGui::SetNextItemWidth(px(200));
          if (ImGui::BeginCombo("##csrc", ui_text(launcher_model_player_src_label(m, p)))) {
@@ -71,7 +98,7 @@
              ImGui::EndCombo();
          }
          if (cfg_psx) {
-@@ -3991,6 +3987,11 @@
+@@ -3991,6 +3996,11 @@
      // input.cfg): GameInfo.hide_rebind drops the bindings card entirely and the
      // Controller view is source+deadzone only.
      if (m->hide_rebind) return;
@@ -83,7 +110,7 @@
  
      if (begin_panel("cfg_binds", 0)) {
          // Responsive grid: fit as many label+chip columns as the width allows
-@@ -4269,7 +4270,7 @@
+@@ -4269,7 +4279,7 @@
          // A pad-bind console (Genesis) offers a KEY chip AND a GAMEPAD chip per
          // row — the legacy launcher's "Set key" / "Set pad" pair. Otherwise the
          // grid is keyboard-only, exactly as before.

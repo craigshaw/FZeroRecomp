@@ -77,6 +77,13 @@ endif()
 include(CTest)
 if(BUILD_TESTING)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_executable(fzero_launcher_saves_tests tests/test_launcher_saves.c src/launcher_saves.c)
+    target_include_directories(fzero_launcher_saves_tests PRIVATE src)
+    snesrecomp_target_sdl(fzero_launcher_saves_tests)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/launcher-saves-test-data")
+    add_test(NAME fzero_launcher_saves COMMAND fzero_launcher_saves_tests)
+    set_tests_properties(fzero_launcher_saves PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/launcher-saves-test-data")
     add_executable(fzero_host_ui_tests
         tests/test_host_ui.c
         src/config.c src/launcher_settings.c src/runtime_ui.c src/runtime_ui_imgui.cpp
