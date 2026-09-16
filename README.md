@@ -21,6 +21,7 @@ Development is ongoing; not every course, vehicle, or game situation is covered.
 - Optional 16:9 widescreen
 - Enhanced visual filters
 - Keyboard and gamepad input, audio, and persistent saves
+- Ten race records and five lap records per car, for every track
 - ROM picker with identity verification
 - In-game display, audio, and input settings
 
@@ -209,8 +210,42 @@ message confirms success or failure. Keep `screenshots/` when updating the game.
 For source builds, keep the executable and its `assets/` folder together in a
 writable directory.
 Settings live beside the executable: `config.ini`, `keybinds.ini`, and `rom.cfg`.
-SRAM is saved to `saves/save.srm` on normal exit. Close the game before renaming
-a settings file to restore its defaults; leave the save file in place.
+SRAM is saved to `saves/save.srm` when records change and on normal exit. Close
+the game before renaming a settings file to restore its defaults; leave the
+save file in place.
+
+### Per-car records
+
+Open **Records** and choose a track. Left/right cycles through the four cars
+and a fifth mixed page; up/down changes track and keeps the selected page.
+The four car images stay in fixed positions on every page, with inactive cars
+greyed out. The mixed page highlights all four and shows each record's car
+beside its time. It takes the best times across the four car lists.
+Records reached after a Grand Prix starts on the car you raced. Each car has ten race times
+and five lap times. GP and Practice share the lists. A completed five-lap race
+can add its total time and its fastest lap. Equal times from separate races
+are kept. Empty places show dashes.
+
+Flashing markers identify the latest completed race and its fastest lap on
+each track, beside their qualifying rows on the car and mixed pages. Each
+page uses its own ranking. Markers remain available across all five GP tracks
+and are not stored in the save file.
+
+Existing saved race times and the best lap are imported into their car's
+lists. Missing history starts empty. Select opens the track-clear confirmation;
+**Yes** clears that track for all four cars, including its original records.
+
+Saves remain 2 KB and retain the original record format. Normal saving in the
+original game preserves the extra records when the transfer tool retains the
+full file. On return, the recomp merges records still visible in the original
+table. It cannot recover results that the original game did not retain.
+Clearing a track in the original game does not clear the extra records.
+
+The previous valid save is kept as `saves/save.srm.bak`. Damaged or unrecognised
+data is preserved in a numbered `save.srm.recovery-*` file before repair. A
+newer extension version disables saving for that session to protect the file.
+See [the records format](docs/RECORDS_EXTENSION.md) for storage and recovery
+limits.
 
 If the ROM is rejected, check its region, size, and hash. If CMake cannot find
 SDL3, install its development files and set `SDL3_DIR` to the folder containing

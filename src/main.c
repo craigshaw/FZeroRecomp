@@ -57,6 +57,8 @@
 #include "desktop/sdl_compat.h"
 #include "presentation.h"
 #include "screenshot.h"
+#include "fzero_records_runtime.h"
+#include "fzero_save.h"
 
 #if defined(RECOMP_LAUNCHER)
 #include "recomp_launcher.h"   /* recomp_launcher_run_window() ABI */
@@ -102,6 +104,22 @@ static SDL_Renderer *g_renderer;
 static SDL_Texture *g_texture;
 static FZeroPresentation *g_presentation;
 static FZeroLayers *g_layers;
+static FZeroRecordsRuntime g_records;
+static bool g_save_writable;
+
+static void SaveRecords(void) {
+  char message[384];
+  if (!g_save_writable) return;
+  if (!FZeroRecordsFlush(&g_records, g_sram)) {
+    SDL_strlcpy(message, "Records could not be encoded. The previous save is unchanged.", sizeof(message));
+  } else if (FZeroSaveWrite(g_sram, message, sizeof(message))) {
+    return;
+  }
+  /* A persistent failure must not trigger a write attempt every frame. */
+  g_save_writable = false;
+  fprintf(stderr, "[Save] %s\n", message);
+  SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Save failed", message, g_window);
+}
 static uint8_t g_pixels[FZERO_FRAME_WIDTH * 4 * FZERO_FRAME_HEIGHT];
 int g_ws_extra;
 
@@ -635,8 +653,17 @@ int main(int argc, char **argv) {
   PpuBeginDrawing(g_ppu, g_pixels, (size_t)FZERO_FRAME_WIDTH * 4,
                   kPpuRenderFlags_NewRenderer);
   fprintf(stderr, "init: PpuBeginDrawing ok\n");
-  RtlReadSram();
-  fprintf(stderr, "init: RtlReadSram ok\n");
+  char save_message[384];
+  g_save_writable = FZeroSaveLoad(g_sram, save_message, sizeof(save_message));
+  FZeroRecordsStart(&g_records, g_sram, g_save_writable);
+  FZeroSetRecords(&g_records);
+  if (save_message[0]) {
+    fprintf(stderr, "[Save] %s\n", save_message);
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Save records", save_message, g_window);
+  }
+  if (g_records.skipped_laps)
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Save records",
+      "An inherited long lap could not fit in the extension. It remains in the original records.", g_window);
 
 #if defined(RECOMP_LAUNCHER) && SNESRECOMP_SDL3
   /* In-game settings overlay: a fresh ImGui context bound to the game window
@@ -727,7 +754,12 @@ int main(int argc, char **argv) {
     if (!overlay_open) {
       ++host_frame_number;
       bool focused = (SDL_GetWindowFlags(g_window) & SDL_WINDOW_INPUT_FOCUS) != 0;
-      RtlRunFrame(focused ? input & ~blocked_input : 0);
+      uint32 game_input = FZeroRecordsInput(&g_records, g_ram,
+          focused ? input & ~blocked_input : 0, g_ppu->inidisp == 15);
+      FZeroRecordsBeforeFrame(&g_records, g_ram, g_sram);
+      RtlRunFrame(game_input);
+      FZeroRecordsAfterFrame(&g_records, g_ram, g_sram);
+      if (g_records.dirty) SaveRecords();
       if (max_frames > 0 && host_frame_number >= max_frames) running = false;
       g_rtl_game_info->draw_ppu_frame();
       if (!FZeroPresentationUpload(g_presentation,
@@ -803,7 +835,8 @@ int main(int argc, char **argv) {
     }
   }
 
-  RtlWriteSram();
+  SaveRecords();
+  FZeroSetRecords(NULL);
   Tier2CoverageWriteDefaultManifest("fzero");
 
   if (g_gamepad) SDL_CloseGamepad(g_gamepad);

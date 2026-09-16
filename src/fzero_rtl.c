@@ -24,6 +24,7 @@
  */
 #include "fzero_rtl.h"
 #include "fzero_layers.h"
+#include "fzero_records_view.h"
 #include "fzero_scene.h"
 #include "common_cpu_infra.h"
 #include "common_rtl.h"
@@ -40,6 +41,10 @@ static const uint32 kFZeroLoopSpinPc = 0x00803Au;
 /* Software NMI flag in WRAM, with direct page zero. */
 static const uint16 kFZeroNmiFlagAddr = 0x0040u;
 static FZeroLayers *g_layers;
+static FZeroRecordsRuntime *g_records;
+static FZeroRecordsView g_records_view;
+
+void FZeroSetRecords(FZeroRecordsRuntime *records) { g_records = records; }
 
 void FZeroSetLayers(FZeroLayers *layers) { g_layers = layers; }
 
@@ -145,6 +150,7 @@ void FZeroDrawPpuFrame(void) {
 
   for (int i = 0; i <= 224; i++) {
     ppu_runLine(g_ppu, i);
+    if (g_records) FZeroRecordsViewLine(&g_records_view, g_records, g_ppu, i);
     /* Capture before HDMA/IRQ changes the raster state. Recharge reuses HUD
      * slots, whose visible pixels are already protected by sprite capture.
      * Keep scene effects active while the repair animation enters and leaves;
@@ -174,8 +180,8 @@ const RtlGameInfo kFZeroGameInfo = {
   .run_frame = &FZeroRunOneFrameOfGame,
   .draw_ppu_frame = &FZeroDrawPpuFrame,
   /* 2 KB battery SRAM (cart header: ROM+RAM+battery, SRAM size 2 KB). The
-   * runner maps it from the header automatically; RtlReadSram/RtlWriteSram
-   * persist it to saves/save.srm. */
+   * runner maps it from the header automatically. The host save module
+   * persists it to saves/save.srm with the records extension. */
   .save_name_prefix = "save",
   .tier2_capture = 0,
 };

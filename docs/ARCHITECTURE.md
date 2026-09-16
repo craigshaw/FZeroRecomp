@@ -11,6 +11,7 @@ hardware output through SDL3.
 | --- | --- |
 | `src/main.c`, `src/config.c` | ROM verification, paths, audio, input, settings, and the desktop loop |
 | `src/fzero_rtl.c`, `src/fzero_spc_player.c` | Game scheduling and audio integration |
+| `src/fzero_records*`, `src/fzero_save.*` | Per-car records, compatible SRAM extension, Records presentation, and safe save replacement |
 | `src/launcher_settings.*`, `src/launcher_controls.inc` | Launcher settings transfer and F-Zero menu controls |
 | `src/runtime_ui*` | Settings adapter, paused menu, and FPS overlay |
 | `src/presentation.c` | Scene/HUD composition, shaders, and scaling |
@@ -91,6 +92,51 @@ and native sprite limits are unchanged.
 Object creation/removal and depth limits remain those of the game, so cars may
 still appear or disappear at native simulation boundaries. Course and exceptional
 animation coverage is incomplete. Widescreen adds no HD Mode 7 or interpolation.
+
+## Records and saves
+
+The records codec owns only the final 1,536 bytes of the 2 KB SRAM file. The
+first 512 bytes retain their existing layout and remain under guest control.
+Each track/car stores ten race times and five lap times using exact sorted-list
+ranks. The versioned extension has its own CRC and a separate legacy-block
+CRC for detecting external changes. See [RECORDS_EXTENSION.md](RECORDS_EXTENSION.md).
+
+The desktop loop takes a records snapshot before game execution and observes
+completion after it. Only a player race that finishes all five laps supplies
+candidates. The host computes the fastest lap from the five cumulative times
+and processes the event once. Later guest record updates also trigger saving;
+they do not import laps from incomplete races during the session.
+
+Transient highlights retain the inserted car-list positions for each track's
+latest race and lap candidates. This identifies new entries even when times
+tie. The mixed view maps those positions through the same stable car merge.
+It replaces the guest's legacy marker sprites in the copied PPU, keeps their
+palette animation, and uses separate slots from row car icons. No highlight
+metadata is stored in SRAM. A retry clears that track's highlights; a new
+selection, title reset, or save reload clears the session's highlights.
+
+Records presentation uses a copied PPU below the backdrop, before scene/HUD
+capture. It keeps the loaded lettering, car art, track name and map, aligns
+the race column, and adds the lap column. Guest PPU state and memory are not
+changed. A fifth mixed page selects the top ten race and top five lap times
+across the four stored lists, preserving ties and source-car identity without
+extra save data. Mixed rows use that identity for their car icon. Four car
+tabs keep fixed positions with a one-pixel gap; inactive cars use greyed car
+palettes only in the copied PPU. Title, map and text palettes remain intact.
+Left/right is intercepted on Records pages, with one change per press.
+Both menu and post-GP entry select the raced car. Page metadata remains
+active through the exit fade, until the next menu loads, so the original
+layout cannot appear during the transition. The guest retains track
+navigation, exit and confirmation handling.
+The host observes an accepted clear and clears every car on that track.
+
+The host save module loads SRAM, preserves damaged input in a numbered recovery
+file, and disables saving if recovery cannot be retained or the extension is
+newer than this host supports. Writes stage a complete temporary file, retain
+a previous valid backup, and replace the save only after closing the temporary
+file successfully. Write failures leave the current save in place and disable
+further attempts for that session. The launcher still imports or clears the
+whole file through its existing backup path.
 
 ## Shaders and UI
 

@@ -27,6 +27,10 @@ endif()
 add_executable(fzero_recomp
     ${SNESRECOMP_RUNNER_SOURCES}
     ${GENERATED_SOURCES}
+    src/fzero_records.c
+    src/fzero_records_runtime.c
+    src/fzero_records_view.c
+    src/fzero_save.c
     src/fzero_rtl.c
     src/fzero_spc_player.c
     src/main.c
@@ -77,6 +81,28 @@ endif()
 include(CTest)
 if(BUILD_TESTING)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_executable(fzero_records_tests tests/test_records.c src/fzero_records.c)
+    target_include_directories(fzero_records_tests PRIVATE src)
+    add_test(NAME fzero_records COMMAND fzero_records_tests)
+    add_executable(fzero_records_runtime_tests tests/test_records_runtime.c
+        src/fzero_records.c src/fzero_records_runtime.c)
+    target_include_directories(fzero_records_runtime_tests PRIVATE src)
+    add_test(NAME fzero_records_runtime COMMAND fzero_records_runtime_tests)
+    add_executable(fzero_records_save_tests tests/test_records_save.c
+        src/fzero_records.c src/fzero_save.c)
+    target_include_directories(fzero_records_save_tests PRIVATE src)
+    snesrecomp_target_sdl(fzero_records_save_tests)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/records-save-test-data")
+    add_test(NAME fzero_records_save COMMAND fzero_records_save_tests)
+    set_tests_properties(fzero_records_save PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/records-save-test-data")
+    add_executable(fzero_records_view_tests tests/test_records_view.c
+        src/fzero_records.c src/fzero_records_view.c
+        ${SNESRECOMP_RUNNER_ROOT}/src/snes/ppu.c
+        ${SNESRECOMP_RUNNER_ROOT}/src/snes/ppu_legacy.c)
+    target_include_directories(fzero_records_view_tests PRIVATE src ${SNESRECOMP_RUNNER_INCLUDE_DIRS})
+    target_compile_definitions(fzero_records_view_tests PRIVATE SNESRECOMP_REVERSE_DEBUG=0)
+    add_test(NAME fzero_records_view COMMAND fzero_records_view_tests)
     add_executable(fzero_launcher_saves_tests tests/test_launcher_saves.c src/launcher_saves.c)
     target_include_directories(fzero_launcher_saves_tests PRIVATE src)
     snesrecomp_target_sdl(fzero_launcher_saves_tests)

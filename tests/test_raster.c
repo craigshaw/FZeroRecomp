@@ -2,6 +2,7 @@
 #include "fzero_rtl.h"
 #include "fzero_layers.h"
 #include "fzero_scene.h"
+#include "fzero_records_view.h"
 #include "common_rtl.h"
 #include "cpu_state.h"
 #include "snes/snes.h"
@@ -9,6 +10,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* This test exercises raster ordering with the records renderer disabled. */
+void FZeroRecordsViewLine(FZeroRecordsView *v, const FZeroRecordsRuntime *r, const Ppu *p, int line) { abort(); }
 
 #define CHECK(c) do { if (!(c)) { fprintf(stderr,"raster line %d: %s\n",__LINE__,#c); exit(1); } } while (0)
 static Snes snes;

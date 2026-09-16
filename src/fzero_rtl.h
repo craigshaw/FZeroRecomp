@@ -8,6 +8,9 @@
 void FZeroRunOneFrameOfGame(void);
 void FZeroDrawPpuFrame(void);
 
+struct FZeroRecordsRuntime;
+void FZeroSetRecords(struct FZeroRecordsRuntime *records);
+
 struct FZeroLayers;
 void FZeroSetLayers(struct FZeroLayers *layers);
 
