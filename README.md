@@ -245,6 +245,11 @@ save file in place.
 
 ### Per-car records
 
+With Widescreen on, all 15 Records pages have full-width headers. The
+extensions use each header's original scenery tiles and colours, keeping the
+main landmarks intact. The records, car tabs and track map stay centred.
+Turn Widescreen off to use the native view.
+
 Open **Records** and choose a track. Left/right cycles through the four cars
 and a fifth mixed page; up/down changes track and keeps the selected page.
 The four car images stay in fixed positions on every page, with inactive cars

@@ -1,5 +1,6 @@
 /* Invented page graphics verify that rendering changes only copied state. */
 #include "fzero_records_view.h"
+#include "display_layout.h"
 #include "snes/snes.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,6 +18,84 @@ void WsShadowOnVramWrite(uint16_t a,uint16_t v){}
 static Ppu ppu,before;
 static FZeroRecordsView view;
 static uint32_t pixels[224][256];
+static uint32_t wide[224][FZERO_WIDE_WIDTH];
+static uint32_t saved_pixels[224][256];
+static void Backdrop(void) {
+    static const uint8_t kinds[15]={0,1,2,3,4,0,5,6,0,0,0,3,5,6,7};
+    /* Only layout markers are real. The rendered tile patterns are invented. */
+    static const uint16_t landmarks[8][3][2]={
+        {{106,0x18d5},{107,0x18d6},{0x1040,0x181c}},
+        {{107,0x18bc},{131,0x18a7},{0x104f,0x18c7}},
+        {{141,0x18ca},{142,0x18cb},{0x1046,0x185d}},
+        {{144,0x185b},{145,0x183f},{0x1080,0x1838}},
+        {{105,0x18a5},{133,0x18b6},{0x1053,0x1c85}},
+        {{109,0x1810},{110,0x1811},{0x1000,0x1c01}},
+        {{107,0x18bc},{131,0x18a7},{0x1080,0x1838}},
+        {{131,0x1870},{132,0x1872},{0x1040,0x182d}}
+    };
+    static const unsigned first_pixels[8][2][2]={
+        {{185,184},{185,184}},{{201,0},{217,0}},{{153,40},{1,232}},
+        {{185,0},{73,192}},{{81,0},{1,176}},{{169,168},{1,248}},
+        {{201,0},{73,192}},{{121,120},{41,152}}
+    };
+    FZeroRecordsRuntime records={0};records.initialized=records.view_active=true;
+    ppu_reset(&ppu);PpuBeginDrawing(&ppu,(uint8_t *)pixels,sizeof(pixels[0]),kPpuRenderFlags_NewRenderer);
+    ppu.bgmode=1;ppu.bgXsc[0]=3;ppu.bgXsc[1]=0x13;ppu.bgXsc[2]=0x23;ppu.bgTileAdr=0x4433;
+    ppu.vram[0x2000+8*32+9]=0x0c27;ppu.vram[0x2000+8*32+12]=0x0c51;
+    /* Invented coloured columns expose wrong page wrapping, tile phase and
+     * layer selection. No cartridge art is needed for this test. */
+    for(unsigned tile=0;tile<32;++tile) {
+        ppu.cgram[tile+1]=(uint16_t)(tile+1);
+        for(unsigned row=0;row<8;++row) {
+            unsigned colour=tile%15+1;
+            ppu.vram[0x3000+tile*16+row]=(uint16_t)((colour&1?0xaa:0)|(colour&2?0xff00:0));
+            ppu.vram[0x3008+tile*16+row]=(uint16_t)((colour&4?0xff:0)|(colour&8?0xff00:0));
+        }
+    }
+    for(unsigned track=0;track<FZERO_RECORD_TRACKS;++track) {
+        unsigned kind=kinds[track];
+        records.view_track=track;
+        for(unsigned layer=0;layer<2;++layer)for(unsigned y=0;y<8;++y)for(unsigned x=0;x<32;++x)
+            ppu.vram[layer*0x1000+y*32+x]=(uint16_t)x;
+        for(unsigned i=0;i<3;++i)ppu.vram[landmarks[kind][i][0]]=landmarks[kind][i][1];
+        for(unsigned layer=0;layer<2;++layer)for(unsigned brightness=0;brightness<16;++brightness) {
+            ppu.screenEnabled[0]=(uint8_t)(1u<<layer);ppu.inidisp=(uint8_t)brightness;
+            ppu_runLine(&ppu,0);
+            for(int line=1;line<=56;++line)ppu_runLine(&ppu,line);
+            before=ppu;memcpy(saved_pixels,pixels,sizeof(pixels));memset(wide,0x5a,sizeof(wide));
+            for(int line=1;line<=56;++line)
+                CHECK(FZeroRecordsBackdropLine(&view,&records,&ppu,line,(uint8_t *)wide,sizeof(wide[0])));
+            CHECK(!memcmp(&ppu,&before,sizeof(ppu)) && !memcmp(pixels,saved_pixels,sizeof(pixels)));
+            unsigned left=first_pixels[kind][layer][0],right=first_pixels[kind][layer][1];
+            CHECK(wide[0][0]==pixels[0][left]);
+            CHECK(wide[0][FZERO_WIDE_MARGIN+256]==pixels[0][right]);
+            CHECK(!memcmp(wide[0]+FZERO_WIDE_MARGIN,pixels[0],sizeof(pixels[0])));
+            CHECK(wide[56][0]==0x5a5a5a5a); /* Header rendering cannot touch the body. */
+        }
+        records.view_car=FZERO_RECORD_MIXED_PAGE;records.confirmation=true;
+        CHECK(FZeroRecordsBackdropLine(&view,&records,&ppu,1,(uint8_t *)wide,sizeof(wide[0])));
+        for(unsigned other=0;other<FZERO_RECORD_TRACKS;++other) {
+            records.view_track=other;
+            CHECK(FZeroRecordsBackdropLine(&view,&records,&ppu,1,(uint8_t *)wide,sizeof(wide[0]))==
+                  (kinds[other]==kind));
+        }
+    }
+    records.view_track=14;
+    CHECK(!FZeroRecordsBackdropLine(&view,&records,&ppu,0,(uint8_t *)wide,sizeof(wide[0])));
+    CHECK(!FZeroRecordsBackdropLine(&view,&records,&ppu,57,(uint8_t *)wide,sizeof(wide[0])));
+    records.view_track=FZERO_RECORD_TRACKS;
+    CHECK(!FZeroRecordsBackdropLine(&view,&records,&ppu,1,(uint8_t *)wide,sizeof(wide[0])));
+    records.view_track=14;records.view_active=false;
+    CHECK(!FZeroRecordsBackdropLine(&view,&records,&ppu,1,(uint8_t *)wide,sizeof(wide[0])));
+    records.view_active=true;ppu.inidisp=0x80;
+    CHECK(!FZeroRecordsBackdropLine(&view,&records,&ppu,1,(uint8_t *)wide,sizeof(wide[0])));
+    ppu.inidisp=15;ppu.hScroll[0]=1;
+    CHECK(!FZeroRecordsBackdropLine(&view,&records,&ppu,1,(uint8_t *)wide,sizeof(wide[0])));
+    ppu.hScroll[0]=0;ppu.bgmode=0x11;
+    CHECK(!FZeroRecordsBackdropLine(&view,&records,&ppu,1,(uint8_t *)wide,sizeof(wide[0])));
+    ppu.bgmode=1;ppu.vram[0x2000+8*32+9]=0;
+    CHECK(!FZeroRecordsBackdropLine(&view,&records,&ppu,1,(uint8_t *)wide,sizeof(wide[0])));
+}
 int main(void) {
     FZeroRecordsRuntime records={0};FZeroRecordsInit(&records.records);
     records.initialized=records.view_active=true;
@@ -143,5 +222,6 @@ int main(void) {
     records.view_active=false;FZeroRecordsViewLine(&view,&records,&ppu,1);FZeroRecordsViewLine(&view,&records,&ppu,57);CHECK(!view.active);
     records.view_active=true;ppu.vram[0x2000+8*32+9]=0;
     FZeroRecordsViewLine(&view,&records,&ppu,1);FZeroRecordsViewLine(&view,&records,&ppu,57);CHECK(!view.active);
-    puts("records presentation isolation, five pages, fading and dialog: passed");return 0;
+    Backdrop();
+    puts("records presentation isolation, five pages, fading, dialog and wide headers: passed");return 0;
 }

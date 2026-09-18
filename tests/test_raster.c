@@ -13,6 +13,11 @@
 
 /* This test exercises raster ordering with the records renderer disabled. */
 void FZeroRecordsViewLine(FZeroRecordsView *v, const FZeroRecordsRuntime *r, const Ppu *p, int line) { abort(); }
+bool FZeroRecordsBackdropLine(FZeroRecordsView *v, const FZeroRecordsRuntime *r,
+                             const Ppu *p, int line, uint8_t *pixels, size_t pitch) {
+    if(r)abort();
+    return false;
+}
 
 #define CHECK(c) do { if (!(c)) { fprintf(stderr,"raster line %d: %s\n",__LINE__,#c); exit(1); } } while (0)
 static Snes snes;

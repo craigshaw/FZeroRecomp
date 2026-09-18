@@ -109,6 +109,7 @@ and native sprite limits are unchanged.
 | Race results and crashed-out page | Extended backdrop | Selected style; score and lives at wide edges; protected result lettering stays centred |
 | GP ending camera | Extended backdrop and racing vehicles | Selected style; corner instruments at wider edges; protected results table stays centred |
 | Title | Extended backdrop | Original colours; title text stays centred |
+| Records: all 15 tracks | Tile-based header extensions; centred body | Original colours, including fades |
 | Unrecognised layout or unsupported render mode | Native view | Original colours |
 
 Object creation/removal and depth limits remain those of the game, so cars may
@@ -151,6 +152,19 @@ active through the exit fade, until the next menu loads, so the original
 layout cannot appear during the transition. The guest retains track
 navigation, exit and confirmation handling.
 The host observes an accepted clear and clears every car on that track.
+
+The Records headers have separate tilemaps from the racing panoramas. The
+wide view covers all 15 tracks with eight shared tile arrangements, retaining
+each track's resident palette. It adds nine source tile columns per side,
+cropped to the existing 71-pixel margins. Fixed column recipes continue the
+low skyline, terrain and sky, preserving the central landmarks. Port Town
+continues its horizontal sky edge tiles above the distant structures, so its
+sloping bands do not restart in the margins. The
+renderer copies the current PPU state, uses resident tile attributes and
+palettes, and draws only BG1 and BG2 into a wide scratch surface. Composition
+copies only the side columns into the protected colour layer. Native output
+and the Records body remain unchanged. Page and resident-art guards reject
+unsupported layouts and mismatched track uploads.
 
 The host save module loads SRAM, preserves damaged input in a numbered recovery
 file, and disables saving if recovery cannot be retained or the extension is

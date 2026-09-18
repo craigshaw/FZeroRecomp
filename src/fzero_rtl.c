@@ -160,6 +160,17 @@ void FZeroDrawPpuFrame(void) {
        * menu or exception state. That update can already describe a new frame. */
       FZeroLayersProcessLine(g_layers, g_ppu, i,
                             g_layers->wide_scene, g_layers->hud_layout);
+      if (FZeroRecordsBackdropLine(&g_records_view, g_records, g_ppu, i,
+                                  (uint8_t *)g_layers->wide_capture,
+                                  sizeof(g_layers->wide_capture[0]))) {
+        /* The Records artwork keeps Original colours, including its fade.
+         * Native pixels and the centred records layout remain untouched. */
+        for (int x = 0; x < FZERO_WIDE_WIDTH; ++x) {
+          if (x >= FZERO_WIDE_MARGIN && x < FZERO_WIDE_MARGIN + FZERO_NATIVE_WIDTH) continue;
+          g_layers->wide_hud[i-1][x] = g_layers->wide_capture[i-1][x] | 0xff000000u;
+          g_layers->wide_world[i-1][x] = 0;
+        }
+      }
     }
     for (int c = 0; c < 8; c++)
       SimpleHdma_DoLine(&hdma_chans[c]);

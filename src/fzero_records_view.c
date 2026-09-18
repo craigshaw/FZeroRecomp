@@ -1,5 +1,102 @@
 #include "fzero_records_view.h"
+#include "display_layout.h"
 #include <string.h>
+
+enum { City, Blue, Sand, Wind, Silence, Port, Canyon, Fire };
+typedef struct RecordsBackdrop {
+    uint8_t columns[2][2][9]; /* Layer, side, source tile column. */
+    uint16_t landmarks[3][2]; /* Resident tilemap address and attributes. */
+    bool edge_sky;
+} RecordsBackdrop;
+static const uint8_t track_backdrop[FZERO_RECORD_TRACKS]={
+    City,Blue,Sand,Wind,Silence, City,Port,Canyon,City,City, City,Wind,Port,Canyon,Fire
+};
+/* Reuse complete small features and quiet terrain. Keep the main landmarks
+ * in the native centre. All graphics and colours come from the current PPU;
+ * shared arrangements therefore retain each track's own palette. */
+static const RecordsBackdrop backdrops[]={
+    { /* Mute City I/II/III and White Land I/II: low skyline. */
+        {{{23,24,25,26,27,28,29,30,31},{23,24,25,26,27,28,29,30,31}},
+         {{23,24,25,26,27,28,29,30,31},{23,24,25,26,27,28,29,30,31}}},
+        {{3*32+10,0x18d5},{3*32+11,0x18d6},{0x1000+2*32,0x181c}},false
+    },
+    { /* Big Blue: small islands, complete clouds and distant shore. */
+        {{{25,26,27,28,29,30,31,0,1},{0,1,2,3,4,5,6,7,8}},
+         {{27,28,29,30,31,0,1,2,3},{0,1,2,3,4,5,6,7,8}}},
+        {{3*32+11,0x18bc},{4*32+3,0x18a7},{0x1000+2*32+15,0x18c7}},false
+    },
+    { /* Sand Ocean: low terrain and clear sky around the formations. */
+        {{{19,20,21,22,23,24,25,26,27},{5,6,7,8,9,10,11,12,16}},
+         {{0,1,2,3,4,0,1,2,3},{29,30,31,29,30,31,29,30,31}}},
+        {{4*32+13,0x18ca},{4*32+14,0x18cb},{0x1000+2*32+6,0x185d}},false
+    },
+    { /* Death Wind I/II: complete the rocks crossing the native edges. */
+        {{{23,24,25,26,27,28,29,30,31},{0,1,2,3,4,5,6,7,8}},
+         {{9,10,11,12,13,14,15,16,17},{24,25,26,27,28,29,30,31,31}}},
+        {{4*32+16,0x185b},{4*32+17,0x183f},{0x1000+4*32,0x1838}},false
+    },
+    { /* Silence: smaller pillars; do not repeat the moon. */
+        {{{10,11,12,13,14,15,16,17,18},{0,1,2,3,4,5,6,7,8}},
+         {{0,1,2,3,4,5,6,7,8},{22,23,24,25,26,27,28,29,30}}},
+        {{3*32+9,0x18a5},{4*32+5,0x18b6},{0x1000+2*32+19,0x1c85}},false
+    },
+    { /* Port Town I/II: open water and small distant structures. */
+        {{{21,22,23,24,25,26,27,28,29},{21,22,23,24,25,26,27,28,29}},
+         {{1,2,3,4,5,6,7,8,9},{6,7,8,9,10,11,12,13,14}}},
+        {{3*32+13,0x1810},{3*32+14,0x1811},{0x1000,0x1c01}},true
+    },
+    { /* Red Canyon I/II: smaller rocks and low distant ridges. */
+        {{{25,26,27,28,29,30,31,0,1},{0,1,2,3,4,5,6,7,8}},
+         {{9,10,11,12,13,14,15,16,17},{24,25,26,27,28,29,30,31,31}}},
+        {{3*32+11,0x18bc},{4*32+3,0x18a7},{0x1000+4*32,0x1838}},false
+    },
+    { /* Fire Field: low industrial horizon, retaining the main platforms. */
+        {{{15,16,17,18,19,20,21,22,23},{15,16,17,18,19,20,21,22,23}},
+         {{5,0,1,2,3,4,5,0,1},{19,20,21,22,23,24,25,26,27}}},
+        {{4*32+3,0x1870},{4*32+4,0x1872},{0x1000+2*32,0x182d}},false
+    }
+};
+
+bool FZeroRecordsBackdropLine(FZeroRecordsView *v,const FZeroRecordsRuntime *r,
+                              const Ppu *ppu,int line,uint8_t *pixels,size_t pitch) {
+    if(line<1 || line>56 || !r || !r->initialized || !r->view_active ||
+       r->view_track>=FZERO_RECORD_TRACKS || PPU_mode(ppu)!=1 ||
+       PPU_bigTiles(ppu,0) || PPU_bigTiles(ppu,1) ||
+       PPU_forcedBlank(ppu) || ppu->extraLeftRight || PPU_objInterlace(ppu) ||
+       !(ppu->renderFlags&kPpuRenderFlags_NewRenderer) ||
+       ppu->bgXsc[0]!=0x03 || ppu->bgXsc[1]!=0x13 || ppu->bgXsc[2]!=0x23 ||
+       ppu->bgTileAdr!=0x4433 || ppu->hScroll[0] || ppu->hScroll[1] ||
+       ppu->vScroll[0] || ppu->vScroll[1] ||
+       ppu->vram[0x2000+8*32+9]!=0x0c27 ||
+       ppu->vram[0x2000+8*32+12]!=0x0c51)return false;
+    /* Selection metadata can lead a graphics upload during track changes.
+     * Require the matching resident landmarks before selecting a recipe. */
+    const RecordsBackdrop *backdrop=&backdrops[track_backdrop[r->view_track]];
+    for(unsigned i=0;i<3;++i)
+        if(ppu->vram[backdrop->landmarks[i][0]]!=backdrop->landmarks[i][1])return false;
+    /* Each side uses nine whole source columns, cropped to 71 pixels by the
+     * renderer. Keep the native tile phase, palette, priority and flip bits.
+     * No new graphics, scaling or random placement are used. */
+    memcpy(&v->scratch,ppu,sizeof(*ppu));Ppu *copy=&v->scratch;
+    copy->renderBuffer=pixels;copy->renderPitch=pitch;
+    PpuClearOverlayBindings(copy);PpuSetExtraSpace(copy,FZERO_WIDE_MARGIN);
+    copy->screenEnabled[0]&=3;copy->screenEnabled[1]&=3;
+    for(unsigned layer=0;layer<2;++layer) {
+        unsigned base=layer*0x1000;
+        for(unsigned row=0;row<8;++row)for(unsigned side=0;side<2;++side)
+            for(unsigned x=0;x<9;++x) {
+                unsigned destination=side?x:23+x;
+                unsigned source=row<7?backdrop->columns[layer][side][x]:0;
+                /* Port Town's sky bands slope through the native image.
+                 * Their edge tiles contain horizontal runs: continue those
+                 * levels without restarting the slope or repeating islands. */
+                if(backdrop->edge_sky && layer==1 && row<4)source=side?31:0;
+                copy->vram[base+0x400+row*32+destination]=ppu->vram[base+row*32+source];
+            }
+    }
+    ppu_runLine(copy,line);
+    return true;
+}
 
 static void TimeTiles(uint16_t *row,uint16_t time) {
     if(time==FZERO_RECORD_EMPTY) {
