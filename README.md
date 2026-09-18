@@ -276,6 +276,11 @@ newer extension version disables saving for that session to protect the file.
 See [the records format](docs/RECORDS_EXTENSION.md) for storage and recovery
 limits.
 
+To combine records from two saves, use the standalone
+[command-line save merge tool](docs/SAVE_MERGE.md). It writes a new save with
+Primary's non-record data and the fastest distinct times from both inputs.
+It requires Python 3.11 or newer and does not change either input file.
+
 If the ROM is rejected, check its region, size, and hash. If CMake cannot find
 SDL3, install its development files and set `SDL3_DIR` to the folder containing
 `SDL3Config.cmake`. If input does not respond, check the selected input source.
