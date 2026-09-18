@@ -16,7 +16,7 @@
  *   - keyboard/gamepad -> 12-bit runner input word -> RtlRunFrame(),
  *   - draw: g_rtl_game_info->draw_ppu_frame() renders the PPU field into
  *     the pixel buffer (PpuBeginDrawing target), then blit + present,
- *   - ~60 fps pacing.
+ *   - NTSC game clock independent of display refresh.
  *
  * The launcher window never runs for SNESRECOMP_MAX_FRAMES,
  * an explicit positional ROM, or SNESRECOMP_NO_LAUNCHER; those resolve the
@@ -53,6 +53,7 @@
 #include "spc_player.h"
 #include "config.h"
 #include "frame_rate.h"
+#include "game_clock.h"
 #include "fzero_layers.h"
 #include "desktop/sdl_compat.h"
 #include "presentation.h"
@@ -585,14 +586,9 @@ int main(int argc, char **argv) {
     fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
     return 1;
   }
-  /* Sync presents to the display refresh. Without this the PPU frame is
-   * scanned out mid-refresh: the title screen tears and the fine per-scanline
-   * detail of the Mode-7 road shows up as horizontal-band "background
-   * glitching" rather than a single clean tear. The reference host enables it
-   * at renderer creation; we call SDL_CreateRenderer directly, so set it here.
-   * Best-effort: if vsync isn't supported we fall back to the manual pacing
-   * lower in the loop, which self-skips when present already consumed the
-   * frame time. */
+  /* Request VSync for complete images without tearing. The game clock sets
+   * simulation speed independently; the end-of-loop wait also paces renderers
+   * that do not support VSync. */
   SDL_SetRenderVSync(g_renderer, 1);
   SDL_SetRenderLogicalPresentation(
       g_renderer, FZeroDisplayWidth(settings.widescreen), FZERO_FRAME_HEIGHT,
@@ -693,7 +689,9 @@ int main(int argc, char **argv) {
    * frames so the tier2 coverage manifest is flushed for offline ingest. */
   bool running = true;
   long host_frame_number = 0;
-  uint32 last_tick = SDL_GetTicks();
+  FZeroGameClock game_clock;
+  FZeroGameClockInit(&game_clock, SDL_GetTicksNS());
+  fprintf(stderr, "[Timing] Game clock: 60.098812 Hz; VSync requested\n");
 #if defined(RECOMP_LAUNCHER) && SNESRECOMP_SDL3
   bool prev_overlay_open = false;
 #endif
@@ -745,23 +743,33 @@ int main(int argc, char **argv) {
       if (settings.player_src[0] == 2) OpenConnectedGamepad();
       FZeroRuntimeUiResetPad(g_runtime_ui);
       previous_source = settings.player_src[0];
+      game_clock.pending_input = 0;
       blocked_input = ReadInput(&settings);
     }
     uint32 input = ReadInput(&settings);
     if (prev_overlay_open != overlay_open) blocked_input |= input;
     blocked_input &= input;
     prev_overlay_open = overlay_open;
-    if (!overlay_open) {
+    bool focused = (SDL_GetWindowFlags(g_window) & SDL_WINDOW_INPUT_FOCUS) != 0;
+    uint32 held_input = focused ? input & ~blocked_input : 0;
+    if (!focused) game_clock.pending_input = 0;
+    FZeroGameSteps due = FZeroGameClockPoll(&game_clock, SDL_GetTicksNS(),
+                                           overlay_open, held_input);
+    for (unsigned step = 0; step < due.count; ++step) {
       ++host_frame_number;
-      bool focused = (SDL_GetWindowFlags(g_window) & SDL_WINDOW_INPUT_FOCUS) != 0;
       uint32 game_input = FZeroRecordsInput(&g_records, g_ram,
-          focused ? input & ~blocked_input : 0, g_ppu->inidisp == 15);
+          step == 0 ? due.first_input : held_input, g_ppu->inidisp == 15);
       FZeroRecordsBeforeFrame(&g_records, g_ram, g_sram);
       RtlRunFrame(game_input);
       FZeroRecordsAfterFrame(&g_records, g_ram, g_sram);
       if (g_records.dirty) SaveRecords();
       if (max_frames > 0 && host_frame_number >= max_frames) running = false;
+      /* The draw walk also executes scanline work. Keep it for every game
+       * tick, including ticks whose image is not presented. */
       g_rtl_game_info->draw_ppu_frame();
+      if (!running) break;
+    }
+    if (due.count) {
       if (!FZeroPresentationUpload(g_presentation,
                                    g_layers ? (void *)g_layers->world : g_pixels,
                                    g_layers ? g_layers->hud : NULL))
@@ -816,23 +824,8 @@ int main(int argc, char **argv) {
     if (max_presentations && ++presentation_frames >= max_presentations)
       running = false;
 
-    /* ~60 fps pacing (17/17/16 ms) so audio stays in sync. */
-    {
-      static const uint8 delays[3] = {17, 17, 16};
-      static unsigned delay_index;
-      uint32 cur = SDL_GetTicks();
-      uint32 delay = delays[delay_index];
-      delay_index = (delay_index + 1) % 3;
-      uint32 target = last_tick + delay;
-      last_tick += delay;
-      if (target > cur) {
-        uint32 delta = target - cur;
-        if (delta > 500) delta = 500;
-        SDL_Delay(delta);
-      } else if (cur - target > 500) {
-        last_tick = cur;
-      }
-    }
+    uint64_t wait_ns = FZeroGameClockWait(&game_clock, SDL_GetTicksNS());
+    if (wait_ns) SDL_DelayPrecise(wait_ns);
   }
 
   SaveRecords();

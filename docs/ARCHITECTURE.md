@@ -40,6 +40,28 @@ Course, vehicle, and scene-policy snapshots are taken before NMI with the
 matching display upload. Reading them after the next guest update can combine
 new positions or menu state with an older frame.
 
+### Desktop pacing
+
+The desktop host uses a monotonic game clock at approximately 60.098812 Hz,
+matching the NTSC frame rate. This replaces the 60.000 Hz desktop limiter and
+keeps game speed independent of display refresh. `src/game_clock.h` schedules
+steps; `src/main.c` calls the runner and requests VSync for presentation.
+The displayed FPS readout measures presentations, not simulation steps.
+
+Each due step executes game logic, the records observer, and the full scanline
+walk. Only the last image is uploaded when several steps are due together.
+On a 60 Hz display this normally means an extra game step about every ten
+seconds. Higher refresh rates can repeat an image without advancing the game.
+The host sleeps only for time not already spent in game work and presentation.
+
+Catch-up is limited to three steps. Longer stalls restart the clock without
+accumulating a large backlog. Opening settings clears elapsed time and pending
+input, and pauses audio. Resuming starts one immediate step. Short button
+presses are retained until the next game step; additional steps in the same
+host iteration use the current held controls. Changing input source or losing
+focus clears retained input. The existing audio consumer adjusts its sample
+rate for small differences between the game clock and the audio device.
+
 ## Display composition
 
 The host retains native 256x224 and wide 398x224 scene/HUD surfaces. The wide
