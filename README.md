@@ -69,13 +69,12 @@ The launcher also accepts the same payload with a 512-byte copier header.
 ## Download and install
 
 The [0.4.0 release](https://github.com/craigshaw/FZeroRecomp/releases/tag/v0.4.0)
-is available for macOS. The Windows 0.4.0 build is being prepared; the previous
-0.3.0 Windows download remains available below. Downloads bundle SDL; no compiler
-or code generation is needed to play. You supply your own F-Zero (USA) ROM.
+is available for Windows and macOS. Downloads bundle SDL; no compiler or code
+generation is needed to play. You supply your own F-Zero (USA) ROM.
 
 | Platform | Download | Requirements |
 | --- | --- | --- |
-| Windows | [Windows x64 ZIP (0.3.0, previous release)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.3.0/FZeroRecomp-v0.3.0-Windows-x64.zip) | Windows 10/11 x64; Direct3D 12 with Shader Model 6.0 for visual filters |
+| Windows | [Windows x64 ZIP (0.4.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.4.0/FZeroRecomp-v0.4.0-Windows-x64.zip) | Windows 10/11 x64; Direct3D 12 with Shader Model 6.0 for visual filters |
 | macOS | [Apple Silicon ZIP (0.4.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.4.0/FZeroRecomp-v0.4.0-macOS-arm64.zip) | Apple Silicon (M1 or newer), macOS 13 or newer; Intel Macs are not supported |
 
 ### Windows
