@@ -6,28 +6,53 @@ You supply your own cartridge dump. No ROM is included; generated C is not
 part of the source repository.
 
 <p align="center">
-  <a href="assets/screenshots/title-screen.jpg"><img src="assets/screenshots/title-screen.jpg" width="32%" alt="F-Zero title screen in widescreen"></a>
+  <a href="assets/screenshots/title-screen.png"><img src="assets/screenshots/title-screen.png" width="32%" alt="F-Zero title screen in widescreen"></a>
   <a href="assets/screenshots/mute-city-i-start.png"><img src="assets/screenshots/mute-city-i-start.png" width="32%" alt="The opening moments of a race on Mute City I"></a>
-  <a href="assets/screenshots/screen3.png"><img src="assets/screenshots/screen3.png" width="32%" alt="The opening moments of a race on Mute City II"></a>
+  <a href="assets/screenshots/ws1.png"><img src="assets/screenshots/ws1.png" width="32%" alt="Widescreen race results with lap times and rankings"></a>
 </p>
 
 ## Status and features
 
-Most of the game has been tested on macOS with Apple Silicon. Windows x64 now
-builds with MSVC and passes the synthetic host, graphics, and raster tests,
-including GPU readback on Intel Iris Xe. Linux builds are not yet verified.
-Development is ongoing; not every course, vehicle, or game situation is covered.
+F-Zero Recomp is well tested on macOS (Apple Silicon) and Windows (x64).
+It brings full widescreen racing, enhanced visuals, and expanded records
+to the original game.
 
-- Optional 16:9 widescreen
-- Enhanced visual filters
-- Keyboard and gamepad input, audio, and persistent saves
-- Ten race records and five lap records per car, for every track
-- ROM picker with identity verification
-- In-game display, audio, and input settings
+- **Full 16:9 widescreen racing.** See more of the track and surrounding
+  scenery, with the race HUD positioned for the wider view. The original
+  aspect ratio is also available.
 
-Filters use SDL 3.4 or newer's GPU renderer: Metal on macOS, or Direct3D 12
-with Shader Model 6.0 on Windows. Other renderers retain Original colours and
-support widescreen. Unsupported game layouts use the native view.
+- **Enhanced visual filters.** Choose Enhanced or Vivid for richer colours,
+  Black & White for a different look, or Original to retain the game's
+  original colours. Change your visual settings while playing.
+
+- **Extended records for every car.** Track your ten best race times and
+  five best laps for each car on all 15 tracks. Switch between individual
+  car leaderboards and a combined leaderboard, with car icons and flashing
+  markers highlighting your new records. Existing records are imported,
+  and saves remain compatible with the original game.
+
+Linux builds are not yet verified.
+
+### Visual filters
+
+The same frame on Mute City III, just after the start with all four cars in
+view. Each screenshot is captured at 1920 × 1080. The HUD retains its original
+colours in every mode. Click an image to view it at full size.
+
+| Original | Enhanced |
+| :---: | :---: |
+| [![Mute City III with the Original filter](assets/screenshots/mute-city-iii-original.png)](assets/screenshots/mute-city-iii-original.png) | [![The same Mute City III frame with the Enhanced filter](assets/screenshots/mute-city-iii-enhanced.png)](assets/screenshots/mute-city-iii-enhanced.png) |
+| **Vivid** | **Black & White** |
+| [![The same Mute City III frame with the Vivid filter](assets/screenshots/mute-city-iii-vivid.png)](assets/screenshots/mute-city-iii-vivid.png) | [![The same Mute City III frame with the Black & White filter](assets/screenshots/mute-city-iii-black-and-white.png)](assets/screenshots/mute-city-iii-black-and-white.png) |
+
+### Extended records
+
+<p align="center">
+  <a href="assets/screenshots/records1.png"><img src="assets/screenshots/records1.png" width="48%" alt="Blue Falcon records on Mute City I, with new race and lap records highlighted"></a>
+  <a href="assets/screenshots/records2.png"><img src="assets/screenshots/records2.png" width="48%" alt="Combined records on Mute City I, showing each record's car and new-record markers"></a>
+  <br>
+  <em>Individual car records (left) and combined records (right).</em>
+</p>
 
 ## ROM requirements
 
@@ -43,14 +68,14 @@ The launcher also accepts the same payload with a 512-byte copier header.
 
 ## Download and install
 
-The [0.2.0 release](https://github.com/craigshaw/FZeroRecomp/releases/tag/v0.2.0)
+The [0.3.0 release](https://github.com/craigshaw/FZeroRecomp/releases/tag/v0.2.0)
 is available for Windows and macOS. Both downloads bundle SDL; no compiler
 or code generation is needed to play. You supply your own F-Zero (USA) ROM.
 
 | Platform | Download | Requirements |
 | --- | --- | --- |
-| Windows | [Windows x64 ZIP (0.2.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.2.0/FZeroRecomp-v0.2.0-Windows-x64.zip) | Windows 10/11 x64; Direct3D 12 with Shader Model 6.0 for visual filters |
-| macOS | [Apple Silicon ZIP (0.2.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.2.0/FZeroRecomp-v0.2.0-macOS-arm64.zip) | Apple Silicon (M1 or newer), macOS 13 or newer; Intel Macs are not supported |
+| Windows | [Windows x64 ZIP (0.3.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.3.0/FZeroRecomp-v0.3.0-Windows-x64.zip) | Windows 10/11 x64; Direct3D 12 with Shader Model 6.0 for visual filters |
+| macOS | [Apple Silicon ZIP (0.3.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.3.0/FZeroRecomp-v0.3.0-macOS-arm64.zip) | Apple Silicon (M1 or newer), macOS 13 or newer; Intel Macs are not supported |
 
 ### Windows
 
@@ -92,6 +117,10 @@ copies and copy `build/saves/save.srm` to `saves/save.srm` in that folder;
 back up an existing save before replacing it.
 
 ## Build from source
+
+Visual filters use SDL 3.4 or newer's GPU renderer: Metal on macOS, or
+Direct3D 12 with Shader Model 6.0 on Windows. Other renderers retain Original
+colours and support widescreen.
 
 Requirements: Git, Python 3.11+, CMake 3.20+, Ninja, C11/C++17 compilers, SDL3
 development files, and OpenGL development files. On macOS, Apple's Command Line
