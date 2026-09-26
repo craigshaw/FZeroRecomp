@@ -71,6 +71,9 @@ game frame. Both wider views use the same scene policy, HUD capture and
 relocation, filters, transition guards, ground correction, and vehicle data.
 HUD relocation captures coverage and restores the native scene once per line,
 then applies that result to both wider views. Only placement depends on width.
+Disposable sprite captures use the pinned PPU's OBJ sizes and wrapping Y
+coordinates to skip rows with no eligible sprite. The authentic scanline walk
+and its hardware work still run on every simulation step.
 
 Side rendering operates on copied PPU state. The native centre is inserted
 before HUD relocation. Live PPU state, guest memory, physics, object lifetime,

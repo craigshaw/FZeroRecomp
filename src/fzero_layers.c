@@ -8,11 +8,23 @@ typedef struct WideView {
     int width, margin;
 } WideView;
 
-/* Skip capture passes when none of the selected slots can reach this line.
- * 64 is the largest supported sprite dimension; this is only an optimisation. */
+/* Match the pinned PPU's OBJ height and wrapping row calculation. A copied
+ * capture pass cannot contribute pixels outside these rows. */
+static bool SpriteOnLine(const Ppu *ppu, int y, unsigned slot) {
+    static const uint8_t sizes[8][2] = {
+        {8,16}, {8,32}, {8,64}, {16,32},
+        {16,64}, {32,64}, {16,32}, {16,32}
+    };
+    unsigned large = (ppu->highOam[slot / 4] >> ((slot & 3) * 2 + 1)) & 1;
+    unsigned height = sizes[PPU_objSize(ppu)][large];
+    if (PPU_objInterlace(ppu)) height /= 2;
+    return (uint8_t)(y - (ppu->oam[slot * 2] >> 8)) < height;
+}
+
+/* Skip only disposable sprite passes. The authentic scanline still runs. */
 static bool RangeOnLine(const Ppu *ppu, int y, int first, int count) {
     for (int slot = first; slot < first + count; ++slot)
-        if ((uint8_t)(y - (ppu->oam[slot * 2] >> 8)) < 64) return true;
+        if (SpriteOnLine(ppu, y, slot)) return true;
     return false;
 }
 
@@ -181,7 +193,7 @@ static bool BuildUltraSprites(FZeroLayers *layers, const Ppu *ppu, int line) {
         bool on_line = false;
         for (unsigned slot = 0; slot < 128; ++slot)
             if ((copy->wsOamLeftHint[slot / 8] & (1u << (slot & 7))) &&
-                (uint8_t)(line - 1 - (copy->oam[slot * 2] >> 8)) < 64) on_line = true;
+                SpriteOnLine(copy, line - 1, slot)) on_line = true;
         if (!on_line) continue;
         /* OBJ evaluation is independent of screen enables. Skip backgrounds
          * and colour math in this pass; composition uses the original state. */

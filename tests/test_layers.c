@@ -578,6 +578,42 @@ static void CheckTextFilters(bool results) {
     memset(&layers,0,sizeof(layers));
 }
 
+/* Exercise the PPU's actual OBJ row coverage, including the final visible
+ * row, the first absent row and Y wrapping, for HUD and side sprites. */
+static void CheckSpriteRowBounds(void) {
+    static const unsigned sizes[8][2] = {
+        {8,16}, {8,32}, {8,64}, {16,32},
+        {16,64}, {32,64}, {16,32}, {16,32}
+    };
+    for (unsigned mode=0; mode<8; ++mode)
+        for (unsigned large=0; large<2; ++large)
+            for (unsigned wrap=0; wrap<2; ++wrap) {
+                memset(&layers,0,sizeof(layers));
+                ppu_reset(&ppu);
+                PpuBeginDrawing(&ppu,(uint8_t*)original,sizeof(original[0]),kPpuRenderFlags_NewRenderer);
+                ppu.inidisp=15; ppu.bgmode=1; ppu.screenEnabled[0]=0x10;
+                ppu.obsel=mode<<5; ppu.cgram[0]=0x001f; ppu.cgram[129]=0x03e0;
+                for (int slot=0;slot<128;++slot) SetSprite(slot,256,128,false,0);
+                for (unsigned tile=0;tile<256;++tile)
+                    for (unsigned row=0;row<8;++row) ppu.vram[tile*16+row]=0xff;
+                unsigned y=wrap?250:100, height=sizes[mode][large];
+                SetSprite(20,24,y,large,0x3000);
+                SetSprite(68,-64,y,large,0x3000);
+                layers.move_hud=true;
+                int offsets[]={-1,0,(int)height-1,(int)height};
+                for (unsigned i=0;i<4;++i) {
+                    unsigned row=(uint8_t)(y+offsets[i]);
+                    if (row>=224) continue;
+                    bool visible=offsets[i]>=0 && (unsigned)offsets[i]<height;
+                    CheckAt(true,row+1);
+                    CHECK(layers.wide_hud[row][24]==(visible?0xff00ff00u:0));
+                    CHECK(layers.wide_world[row][24+FZERO_WIDE_MARGIN]==0xff0000u);
+                    CHECK(layers.wide_world[row][FZERO_WIDE_MARGIN-64]==
+                          (visible?0x00ff00u:0xff0000u));
+                }
+            }
+}
+
 int main(void) {
     ppu_reset(&ppu);
     PpuBeginDrawing(&ppu, (uint8_t *)original, sizeof(original[0]), kPpuRenderFlags_NewRenderer);
@@ -761,6 +797,7 @@ int main(void) {
     CheckGpEndingHud();
     CheckCrashFilter();
     CheckNativeCounters();
+    CheckSpriteRowBounds();
     TestVehicles();
     TestGround();
     puts("layer extraction tests: passed");
