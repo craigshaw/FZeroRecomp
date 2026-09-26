@@ -115,6 +115,14 @@ static bool TouchesNativeView(const FZeroVehicle *car) {
     return false;
 }
 
+static bool BodyAvailable(unsigned flags, const uint8_t *ram, unsigned id) {
+    /* Bit 0 identifies an intact flashing bomb, not an explosion. Its
+     * collision latch starts the explosion, then bit 1 owns the effect.
+     * Only traffic can use the bomb flag with the normal body artwork. */
+    return !(flags & 2) && (!(flags & 1) ||
+        ((flags & 0x40) && !ram[0xd30 + id * 2]));
+}
+
 static bool ReprojectSideJump(FZeroVehicle *car, unsigned id, unsigned flags,
                               int x, int y, int anchor_y,
                               const uint8_t *ram, const uint8_t *rom) {
@@ -124,7 +132,7 @@ static bool ReprojectSideJump(FZeroVehicle *car, unsigned id, unsigned flags,
      * the last ground anchor and the current projection. Keep departures
      * through the near plane and any native-visible artwork under the
      * original game's control. */
-    if (!(flags & 0x10) || (flags & 3) || !(ram[0xd51 + id * 2] & 0x80) ||
+    if (!(flags & 0x10) || !BodyAvailable(flags, ram, id) || !(ram[0xd51 + id * 2] & 0x80) ||
         (x >= -32 && x < 288) || x <= -FZERO_ULTRA_MARGIN - 64 ||
         x >= 256 + FZERO_ULTRA_MARGIN + 64 || TouchesNativeView(car)) return false;
     FZeroVehicle candidate = *car;
@@ -156,8 +164,13 @@ static void PrepareShadows(FZeroVehicles *frame, const uint8_t *ram, const uint8
         const uint8_t *parts = Rom(rom, 0x0becd0) + car->size * 16;
         int y = car->ground_y - Rom(rom, 0x0becc2)[car->size];
         for (unsigned p = 0; p < 4; ++p) {
-            int dx = (int16_t)Word(parts + p * 4);
-            if (!dx) break;
+            unsigned packed_x = Word(parts + p * 4);
+            if (!packed_x) break;
+            /* The guest keeps only nine coordinate bits after adding this
+             * table word. Its upper bits are not a signed 16-bit offset.
+             * A nonzero word with a zero offset is still a real piece. */
+            int dx = packed_x & 511;
+            if (dx >= 256) dx -= 512;
             unsigned n = frame->shadow_count++;
             int x = car->x + dx;
             frame->shadow_x[n] = x;
@@ -174,10 +187,11 @@ void FZeroVehiclesPrepare(FZeroVehicles *frame, const uint8_t *ram,
                            const uint8_t *rom, size_t rom_size) {
     frame->ready = false;
     memset(frame->car, 0, sizeof(frame->car));
-    /* The GP ending camera retains the racing vehicle buffers while showing
-     * results. Keep reconstructing cars beyond the native horizontal edges. */
+    /* READY already has racing vehicle buffers once the native intro upload
+     * ends. The GP ending camera also retains them while showing results.
+     * Keep reconstructing cars beyond the native horizontal edges in both. */
     if (!rom || rom_size != 0x80000 || !FZeroSceneWide(ram) ||
-        ram[0x54] != 2 || ram[0x55] < 3 ||
+        ram[0x54] != 2 || ram[0x55] < 2 || !ram[0x50] ||
         (ram[0xc3] && ram[0xc3] != 0x11)) {
         memset(frame->jump_anchor_valid, 0, sizeof(frame->jump_anchor_valid));
         return;
@@ -220,7 +234,8 @@ void FZeroVehiclesPrepare(FZeroVehicles *frame, const uint8_t *ram,
             }
             /* Visibility can return before the native graphics upload is
              * ready. Keep fresh side artwork during that brief handover. */
-            if (id && projected && ram[0x1140 + offset] == 255 && !(flags & 0x13) &&
+            if (id && projected && ram[0x1140 + offset] == 255 && !(flags & 0x10) &&
+                BodyAvailable(flags, ram, id) &&
                 (car->x < 0 || car->x >= 256)) {
                 FZeroVehicle pending = *car;
                 if (Reconstruct(&pending, id, ram, rom)) {
@@ -229,7 +244,7 @@ void FZeroVehiclesPrepare(FZeroVehicles *frame, const uint8_t *ram,
                     if (car->x < 0) ++frame->added_left; else ++frame->added_right;
                 }
             }
-        } else if (projected && !(flags & 0x13) &&
+        } else if (projected && !(flags & 0x10) && BodyAvailable(flags, ram, id) &&
                    (car->x < -32 || car->x >= 288) &&
                    car->x > -FZERO_ULTRA_MARGIN - 64 &&
                    car->x < 256 + FZERO_ULTRA_MARGIN + 64 &&

@@ -135,6 +135,7 @@ static void CheckSceneTransitions(void) {
         CHECK(prepared==2 && !g_ram[0x54]);
         CHECK(layers.wide_scene==expected_wide && layers.hud_layout==expected_hud);
         CHECK(layers.native_oam==!cases[i].obj);
+        CHECK(layers.menu_layout==(cases[i].wide && cases[i].mode==3));
         CHECK(layers.crash_layout==(cases[i].wide && cases[i].mode==2 &&
               cases[i].exception==0x40 && !cases[i].obj));
         CHECK(layers.move_hud==(cases[i].hud ||
@@ -184,7 +185,7 @@ static void CheckSceneTransitions(void) {
         CHECK(FZeroSceneTitle(g_ram) && FZeroSceneWide(g_ram));
         prepared=0; expected_wide=true; expected_hud=false;
         FZeroRunOneFrameOfGame();
-        CHECK(!layers.move_hud && layers.native_oam);
+        CHECK(!layers.move_hud && layers.native_oam && layers.menu_layout);
         g_ram[0x5c]=1; g_ram[0x81]=1;
     }
     g_ram[0x55]=3; CHECK(!FZeroSceneWide(g_ram));
@@ -198,7 +199,7 @@ static void CheckSceneTransitions(void) {
     CHECK(FZeroSceneTitle(g_ram) && FZeroSceneWide(g_ram));
     prepared=0; expected_wide=true; expected_hud=false;
     FZeroRunOneFrameOfGame();
-    CHECK(layers.native_oam && !layers.move_hud && !layers.intro_panorama);
+    CHECK(layers.native_oam && !layers.move_hud && !layers.intro_panorama && layers.menu_layout);
     g_ram[0x54]=1; g_ram[0x55]=0; g_ram[0x5c]=1; g_ram[0x81]=0;
     CHECK(!FZeroSceneWide(g_ram));
     g_ram[0x5c]=0; g_ram[0x81]=1; CHECK(!FZeroSceneWide(g_ram));

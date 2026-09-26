@@ -57,6 +57,59 @@ static void Fixture(void) {
     }
 }
 
+static void TestBombTraffic(void) {
+    const int positions[] = {-278, -200, -50, -33, 288, 300, 450, 525, 534};
+    for (unsigned ending = 0; ending < 2; ++ending)
+    for (unsigned flash = 0; flash < 2; ++flash)
+    for (unsigned at = 0; at < sizeof(positions)/sizeof(positions[0]); ++at) {
+        Fixture();
+        int x = positions[at];
+        ram[0xc3] = ending ? 0x11 : 0;
+        ram[0xb02] = flash ? 0xe1 : 0xc1;
+        ram[0x1133] = 7; /* Traffic reads RAM graphics, not a player model. */
+        Word(ram + 0x1172, x - 128);
+        Word(ram + 0xc42, flash ? 0x0200 : 0);
+        memcpy(saved_ram, ram, sizeof(ram)); memcpy(saved_rom, rom, sizeof(rom));
+        FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
+        CHECK(frame.ready && frame.car[1].added && frame.car[1].x == x);
+        CHECK(!memcmp(saved_ram, ram, sizeof(ram)) && !memcmp(saved_rom, rom, sizeof(rom)));
+        memset(&layers, 0, sizeof(layers)); layers.vehicles = frame;
+        layers.results_layout = ending != 0;
+        ppu_reset(&ppu);
+        PpuBeginDrawing(&ppu, (uint8_t *)original, sizeof(original[0]), kPpuRenderFlags_NewRenderer);
+        ppu.inidisp = 15; ppu.bgmode = 7; ppu.obsel = 2; ppu.screenEnabled[0] = 0x10;
+        ppu.cgram[0] = 0x03e0; ppu.cgram[129] = 0x7c1f; ppu.cgram[145] = 0x7fff;
+        ppu_runLine(&ppu, 0); ppu_runLine(&ppu, 93); saved_ppu = ppu;
+        FZeroLayersProcessLine(&layers, &ppu, 93, true, !ending);
+        CHECK(!memcmp(&saved_ppu, &ppu, sizeof(ppu)));
+        for (int screen = -FZERO_WIDE_MARGIN; screen < 256 + FZERO_WIDE_MARGIN; ++screen) {
+            bool body = screen >= x && screen < x + 8;
+            CHECK(layers.wide_world[92][screen + FZERO_WIDE_MARGIN] ==
+                  (body ? (flash ? 0xffffff : 0xff00ff) : 0x00ff00));
+            CHECK(!layers.wide_hud[92][screen + FZERO_WIDE_MARGIN]);
+        }
+        /* A pending native upload needs fresh artwork at the side too. */
+        ram[0xb02] |= 8; ram[0x1142] = 255;
+        Word(ram + 0xc52, x); ram[0xc62] = 100;
+        FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
+        CHECK(frame.car[1].visible && frame.car[1].added);
+        /* Collision, explosion, removal and departure must not draw a fresh
+         * intact body. Native effect pieces still remain under guest control. */
+        ram[0xb02] = 0xc1; ram[0xd32] = 1;
+        FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom)); CHECK(!frame.car[1].visible);
+        ram[0xd32] = 0;
+        const unsigned excluded[] = {0xc3, 0xc5, 0xd1, 0x81};
+        for (unsigned i = 0; i < sizeof(excluded)/sizeof(excluded[0]); ++i) {
+            ram[0xb02] = excluded[i];
+            FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom)); CHECK(!frame.car[1].visible);
+        }
+        ram[0xb02] = 0xcb; ram[0x11d2] = 1; Word(ram + 0x320, 0x5c10);
+        FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
+        CHECK(frame.car[1].visible && !frame.car[1].added && frame.car[1].oam[0] == 0x5c10);
+    }
+    memset(&layers, 0, sizeof(layers));
+}
+
 static void TestGpEndingVehicles(void) {
     Fixture();
     ram[0xc3] = 0x11;
@@ -97,6 +150,16 @@ static void TestGpEndingVehicles(void) {
     Word(ram + 0x1172, -172); Word(ram + 0x1174, 178);
     FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
     CHECK(frame.car[1].x == -44 && frame.car[2].x == 306);
+    /* READY installs racing OAM before the main racing process starts. */
+    ram[0xc3] = 0; ram[0x55] = 2;
+    FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
+    CHECK(frame.ready && frame.car[1].added && frame.car[2].added);
+    CHECK(frame.car[1].x == -44 && frame.car[2].x == 306);
+    ram[0x50] = 0;
+    FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom)); CHECK(!frame.ready);
+    ram[0x50] = 1; ram[0x55] = 1;
+    FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom)); CHECK(!frame.ready);
+    ram[0x55] = 3;
     /* The exception must not enable reconstruction on unrelated layouts. */
     ram[0xc3] = 9;
     FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom)); CHECK(!frame.ready);
@@ -140,6 +203,45 @@ static void TestUltraEdges(void) {
     }
 }
 #endif
+
+static void TestPackedShadowOffsets(void) {
+    const unsigned packed[] = {0xc1f8, 0x8200, 0x6e08, 0};
+    for (int x = -80; x <= 340; x += 4) {
+        Fixture();
+        ram[0x51] = 1; ram[0xb04] = 0x88;
+        Word(ram + 0xc54, x); ram[0xc64] = 100; ram[0xc35] = 0;
+        for (unsigned p = 0; p < 4; ++p) {
+            uint8_t *part = Data(0x0becd0) + p * 4;
+            Word(part, packed[p]); part[2] = 0x80; part[3] = 0x60;
+        }
+        memcpy(saved_ram, ram, sizeof(ram)); memcpy(saved_rom, rom, sizeof(rom));
+        FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
+        CHECK(frame.shadow_count == 3);
+        for (unsigned p = 0; p < 3; ++p) CHECK(frame.shadow_x[p] == x - 8 + (int)p * 8);
+        CHECK(!memcmp(ram, saved_ram, sizeof(ram)) && !memcmp(rom, saved_rom, sizeof(rom)));
+        memset(&layers, 0, sizeof(layers)); layers.vehicles = frame;
+        ppu_reset(&ppu);
+        PpuBeginDrawing(&ppu, (uint8_t *)original, sizeof(original[0]), kPpuRenderFlags_NewRenderer);
+        ppu.inidisp = 15; ppu.bgmode = 7; ppu.obsel = 2; ppu.screenEnabled[0] = 0x10;
+        ppu.cgram[0] = 0x03e0; ppu.cgram[129] = 0x7c1f;
+        for (unsigned row = 0; row < 8; ++row) ppu.vram[0x4800 + row] = 0xff;
+        /* Use the guest's nine-bit placement in the native centre as the
+         * independent reference while the host renders both outer spans. */
+        for (unsigned p = 0; p < 3; ++p) {
+            unsigned px = (x - 8 + p * 8) & 511;
+            ppu.oam[116 * 2 + p * 2] = (98 << 8) | (px & 255);
+            ppu.oam[116 * 2 + p * 2 + 1] = 0x3080;
+            ppu.highOam[29] |= (px >> 8) << (p * 2);
+        }
+        ppu_runLine(&ppu, 0); ppu_runLine(&ppu, 99); saved_ppu = ppu;
+        FZeroLayersProcessLine(&layers, &ppu, 99, true, true);
+        CHECK(!memcmp(&saved_ppu, &ppu, sizeof(ppu)));
+        for (int screen = -FZERO_WIDE_MARGIN; screen < 256 + FZERO_WIDE_MARGIN; ++screen)
+            CHECK(layers.wide_world[98][screen + FZERO_WIDE_MARGIN] ==
+                (screen >= x - 8 && screen < x + 16 ? 0xff00ff : 0x00ff00));
+    }
+    memset(&layers, 0, sizeof(layers));
+}
 
 static void TestPlayerJumpHiddenPieces(void) {
     Fixture(); ram[0xb00] = 0x88; ram[0xb02] = 0x80;
@@ -420,6 +522,8 @@ void TestVehicles(void) {
         FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom)); CHECK(!frame.jump_anchor_valid[1]);
     }
     TestGpEndingVehicles();
+    TestBombTraffic();
+    TestPackedShadowOffsets();
     TestUltraComposition();
     TestPlayerJumpHiddenPieces();
 #ifdef FZERO_TEST_ULTRA

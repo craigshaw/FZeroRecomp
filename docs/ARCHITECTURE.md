@@ -89,6 +89,15 @@ and native sprite limits are unchanged.
 - **Vehicles:** project active cars with ROM perspective/layout data and current
   ROM/RAM graphics. Keep native pieces when available and preserve depth,
   upload timing, shadow cadence, and conservative exceptional-state guards.
+  Start side reconstruction during READY as soon as the racing OAM upload
+  is installed; opponents can already be outside the native horizontal view.
+  Shadow table X words contain only nine coordinate bits. Sign-extend those
+  bits before adding the signed car position, and test the full table word
+  for the terminator so a tagged zero-offset piece is retained.
+  Intact flashing bomb traffic uses the same side reconstruction as other
+  traffic. Its bomb flag alone does not indicate an explosion. A collision
+  latch or the explosion flag prevents reconstruction of an intact body;
+  native explosion pieces remain under guest control.
   For 32:9, retain signed positions for cars and each shadow piece. Rasterise
   OBJ in two bounded views with origins at -199 and +199, then insert their
   side priority pixels before the full-width PPU colour composition. This
@@ -120,6 +129,11 @@ and native sprite limits are unchanged.
   Move recognised lives counters to the right edge and the results score in the upper-left
   BG3 band to the left edge. Keep other lettering centred, including text
   uncovered at an old counter position. These layouts have no racing power mask.
+  Title and standalone results menus use X-high to hide unused sprites,
+  including Records before any records exist and parked result-screen pieces.
+  Respect that hide flag in copied side passes so the 32:9 margin does not
+  expose hidden artwork. Available options retain their native positions in
+  the centre. Racing, crash effects and the GP ending keep signed side positions.
 
 | Layout | Wide view | Colour and HUD policy |
 | --- | --- | --- |

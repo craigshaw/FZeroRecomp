@@ -614,6 +614,42 @@ static void CheckSpriteRowBounds(void) {
             }
 }
 
+static void CheckHiddenMenuEntries(void) {
+    memset(&layers, 0, sizeof(layers));
+    layers.native_oam = layers.menu_layout = true;
+    ppu_reset(&ppu);
+    PpuBeginDrawing(&ppu, (uint8_t *)original, sizeof(original[0]), kPpuRenderFlags_NewRenderer);
+    ppu.inidisp = 15; ppu.bgmode = 1; ppu.screenEnabled[0] = 0x10;
+    ppu.cgram[0] = 0x03e0; ppu.cgram[129] = 0x7c1f;
+    for (int row = 0; row < 8; ++row) ppu.vram[row] = 0xff;
+    /* The title toggles X-high without changing the lettering coordinates.
+     * Test fresh/available/fresh, including hidden text near the left edge. */
+    const int positions[] = {80, 104, 200, 248};
+    for (int results = 0; results < 2; ++results)
+    for (int phase = 0; phase < 3; ++phase) {
+        layers.results_layout = results != 0;
+        bool hidden = phase != 1;
+        for (unsigned i = 0; i < sizeof(positions)/sizeof(positions[0]); ++i) {
+            SetSprite(33, positions[i] + (hidden ? 256 : 0), 152, false, 0x3000);
+            CheckPolicy(true, false, 153);
+            for (int x = 0; x < FZERO_WIDE_WIDTH; ++x) {
+                bool letter = !hidden && x >= FZERO_WIDE_MARGIN + positions[i] &&
+                    x < FZERO_WIDE_MARGIN + positions[i] + 8;
+                uint32_t pixel = layers.wide_hud[152][x];
+                if (!pixel) pixel = layers.wide_world[152][x];
+                CHECK((pixel & 0xffffff) == (letter ? 0xff00ff : 0x00ff00));
+            }
+        }
+    }
+    /* Other native-upload scenes still accept actual signed side sprites. */
+    layers.menu_layout = false;
+    layers.results_layout = false;
+    SetSprite(33, -40, 152, false, 0x3000);
+    CheckPolicy(true, false, 153);
+    CHECK(layers.wide_hud[152][FZERO_WIDE_MARGIN - 40] == 0xffff00ffu);
+    memset(&layers, 0, sizeof(layers));
+}
+
 int main(void) {
     ppu_reset(&ppu);
     PpuBeginDrawing(&ppu, (uint8_t *)original, sizeof(original[0]), kPpuRenderFlags_NewRenderer);
@@ -798,6 +834,7 @@ int main(void) {
     CheckCrashFilter();
     CheckNativeCounters();
     CheckSpriteRowBounds();
+    CheckHiddenMenuEntries();
     TestVehicles();
     TestGround();
     puts("layer extraction tests: passed");

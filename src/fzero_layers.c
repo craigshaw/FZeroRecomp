@@ -175,7 +175,8 @@ static bool BuildUltraSprites(FZeroLayers *layers, const Ppu *ppu, int line) {
                 int x = (position & 255) | ((high & 1) << 8);
                 if (x >= (layers->native_oam ? 256 : 327)) x -= 512;
                 bool hidden = (!layers->native_oam &&
-                    !(copy->wsOamLeftHint[slot / 8] & (1u << (slot & 7)))) || x == -256;
+                    !(copy->wsOamLeftHint[slot / 8] & (1u << (slot & 7)))) || x == -256 ||
+                    (layers->menu_layout && (high & 1));
                 x -= origin;
                 if (hidden || x + 64 <= -FZERO_WIDE_MARGIN || x >= 327) {
                     copy->oam[slot * 2] = ((line + 64) & 255) << 8;
@@ -307,6 +308,11 @@ static void BuildWideLine(FZeroLayers *layers, const Ppu *ppu, int line,
                 PpuWsSetOamLeftHints(copy, hints);
                 PpuWsSetOamRightHints(copy, hints);
                 copy->renderFlags |= kPpuRenderFlags_NoSpriteLimits;
+                /* Title and results hide unused menu sprites with X-high.
+                 * Those are not signed positions in the expanded scene. */
+                if (layers->menu_layout) for (unsigned slot = 0; slot < 128; ++slot)
+                    if (copy->highOam[slot / 4] & (1u << ((slot & 3) * 2)))
+                        copy->oam[slot * 2] = ((line + 64) & 255) << 8;
             } else if (layers->vehicles.ready) FZeroVehiclesApply(&layers->vehicles, copy);
             else ExtendVehicleSprites(copy);
             if (!FZeroGroundRenderLine(&layers->ground, copy, line)) ppu_runLine(copy, line);

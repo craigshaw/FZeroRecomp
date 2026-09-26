@@ -72,6 +72,7 @@ void FZeroRunOneFrameOfGame(void) {
      * The following game update produces the next frame's guest buffers. */
     if (g_layers) {
       g_layers->wide_scene = FZeroSceneWide(g_ram);
+      g_layers->menu_layout = FZeroSceneTitle(g_ram) || FZeroSceneResults(g_ram);
       g_layers->native_oam = g_ram[0x50] == 0;
       g_layers->intro_panorama = FZeroSceneIntro(g_ram);
       g_layers->results_layout = FZeroSceneResults(g_ram) ||
@@ -82,8 +83,7 @@ void FZeroRunOneFrameOfGame(void) {
           g_ram[0xc3] == 0x40 && (g_layers->native_oam || g_ram[0xcf] >= 7);
       g_layers->hud_layout = g_layers->wide_scene &&
           (!g_layers->native_oam || g_layers->crash_layout) &&
-          !g_layers->intro_panorama && !FZeroSceneTitle(g_ram) &&
-          !FZeroSceneResults(g_ram) && g_ram[0xc3] != 0x11;
+          !g_layers->intro_panorama && !g_layers->menu_layout && g_ram[0xc3] != 0x11;
       /* Finish/loss, crash and GP ending cameras retain the instruments.
        * Crash uploads also retain selective filtering; their effect slots
        * are excluded from instrument capture and movement. Intro and standalone
