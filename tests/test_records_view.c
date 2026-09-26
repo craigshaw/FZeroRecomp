@@ -19,6 +19,7 @@ static Ppu ppu,before;
 static FZeroRecordsView view;
 static uint32_t pixels[224][256];
 static uint32_t wide[224][FZERO_WIDE_WIDTH];
+static uint32_t ultra[224][FZERO_ULTRA_WIDTH];
 static uint32_t saved_pixels[224][256];
 static void Backdrop(void) {
     static const uint8_t kinds[15]={0,1,2,3,4,0,5,6,0,0,0,3,5,6,7};
@@ -70,6 +71,24 @@ static void Backdrop(void) {
             CHECK(wide[0][0]==pixels[0][left]);
             CHECK(wide[0][FZERO_WIDE_MARGIN+256]==pixels[0][right]);
             CHECK(!memcmp(wide[0]+FZERO_WIDE_MARGIN,pixels[0],sizeof(pixels[0])));
+            memset(ultra, 0x5a, sizeof(ultra));
+            for (int line = 1; line <= 56; ++line) {
+                CHECK(FZeroRecordsBackdropLineAtMargin(&view,&records,&ppu,line,
+                    (uint8_t *)ultra,sizeof(ultra[0]),FZERO_ULTRA_MARGIN));
+                for (int x = -FZERO_ULTRA_MARGIN; x < 256+FZERO_ULTRA_MARGIN; ++x) {
+                    if (x >= 0 && x < 256) continue;
+                    int ref = x;
+                    if (x < 0) {
+                        while (ref < -71) ref += 72;
+                        /* The cropped 16:9 recipe omits one pixel per period. */
+                        if (ref == 0) continue;
+                    } else while (ref >= 327) ref -= 72;
+                    if (ref < 256 && x >= 256) continue;
+                    CHECK(ultra[line-1][x+270] == wide[line-1][ref+71]);
+                }
+            }
+            CHECK(ultra[56][0] == 0x5a5a5a5a);
+            CHECK(!memcmp(&ppu,&before,sizeof(ppu)) && !memcmp(pixels,saved_pixels,sizeof(pixels)));
             CHECK(wide[56][0]==0x5a5a5a5a); /* Header rendering cannot touch the body. */
         }
         records.view_car=FZERO_RECORD_MIXED_PAGE;records.confirmation=true;

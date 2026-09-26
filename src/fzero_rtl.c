@@ -53,6 +53,13 @@ void FZeroRunOneFrameOfGame(void) {
   static bool g_did_reset = false;
   static bool g_first_frame_done = false;
 
+  /* This host owns HDMA in FZeroDrawPpuFrame. The dependency also advances
+   * its beam while CPU code runs, including reset and NMI. Suppress that
+   * second HDMA engine here too: otherwise it can overwrite a menu's closed
+   * colour window with a stale racing table between authentic raster walks. */
+  const bool beam_hdma_was_enabled = !g_snes->hdmaBeamOff;
+  snes_set_hdma_beam_enabled(g_snes, false);
+
   if (!g_did_reset) {
     cpu_state_init(&g_cpu, g_ram);
     /* Run boot through the scheduler bridge: reset falls into the
@@ -72,6 +79,7 @@ void FZeroRunOneFrameOfGame(void) {
      * The following game update produces the next frame's guest buffers. */
     if (g_layers) {
       g_layers->wide_scene = FZeroSceneWide(g_ram);
+      g_layers->menu_layout = FZeroSceneTitle(g_ram) || FZeroSceneResults(g_ram);
       g_layers->native_oam = g_ram[0x50] == 0;
       g_layers->intro_panorama = FZeroSceneIntro(g_ram);
       g_layers->results_layout = FZeroSceneResults(g_ram) ||
@@ -82,8 +90,7 @@ void FZeroRunOneFrameOfGame(void) {
           g_ram[0xc3] == 0x40 && (g_layers->native_oam || g_ram[0xcf] >= 7);
       g_layers->hud_layout = g_layers->wide_scene &&
           (!g_layers->native_oam || g_layers->crash_layout) &&
-          !g_layers->intro_panorama && !FZeroSceneTitle(g_ram) &&
-          !FZeroSceneResults(g_ram) && g_ram[0xc3] != 0x11;
+          !g_layers->intro_panorama && !g_layers->menu_layout && g_ram[0xc3] != 0x11;
       /* Finish/loss, crash and GP ending cameras retain the instruments.
        * Crash uploads also retain selective filtering; their effect slots
        * are excluded from instrument capture and movement. Intro and standalone
@@ -111,6 +118,7 @@ void FZeroRunOneFrameOfGame(void) {
                                 kFZeroNmiFlagAddr);
   }
   g_first_frame_done = true;
+  snes_set_hdma_beam_enabled(g_snes, beam_hdma_was_enabled);
 }
 
 void FZeroDrawPpuFrame(void) {
@@ -160,15 +168,19 @@ void FZeroDrawPpuFrame(void) {
        * menu or exception state. That update can already describe a new frame. */
       FZeroLayersProcessLine(g_layers, g_ppu, i,
                             g_layers->wide_scene, g_layers->hud_layout);
-      if (FZeroRecordsBackdropLine(&g_records_view, g_records, g_ppu, i,
-                                  (uint8_t *)g_layers->wide_capture,
-                                  sizeof(g_layers->wide_capture[0]))) {
-        /* The Records artwork keeps Original colours, including its fade.
-         * Native pixels and the centred records layout remain untouched. */
-        for (int x = 0; x < FZERO_WIDE_WIDTH; ++x) {
-          if (x >= FZERO_WIDE_MARGIN && x < FZERO_WIDE_MARGIN + FZERO_NATIVE_WIDTH) continue;
-          g_layers->wide_hud[i-1][x] = g_layers->wide_capture[i-1][x] | 0xff000000u;
-          g_layers->wide_world[i-1][x] = 0;
+      for (int aspect = 1; aspect <= 2; ++aspect) {
+        int width = FZeroDisplayWidth(aspect), margin = FZeroDisplayMargin(aspect);
+        uint32_t *capture = aspect == 2 ? (uint32_t *)g_layers->ultra_capture : (uint32_t *)g_layers->wide_capture;
+        uint32_t *hud = aspect == 2 ? (uint32_t *)g_layers->ultra_hud : (uint32_t *)g_layers->wide_hud;
+        uint32_t *world = aspect == 2 ? (uint32_t *)g_layers->ultra_world : (uint32_t *)g_layers->wide_world;
+        if (FZeroRecordsBackdropLineAtMargin(&g_records_view, g_records, g_ppu, i,
+                (uint8_t *)capture, width * sizeof(*capture), margin)) {
+          /* The Records header keeps its original colours and centred body. */
+          for (int x = 0; x < width; ++x) {
+            if (x >= margin && x < margin + FZERO_NATIVE_WIDTH) continue;
+            hud[(i-1)*width+x] = capture[(i-1)*width+x] | 0xff000000u;
+            world[(i-1)*width+x] = 0;
+          }
         }
       }
     }

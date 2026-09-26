@@ -30,11 +30,14 @@ calls the configured NMI and IRQ entries and preserves their hardware stack
 model. Each scanline is drawn and captured before the next HDMA/IRQ update;
 a handler's register changes affect the following row.
 
-During this scanline walk, the host calls
+During CPU execution (reset, NMI and mainline) and the scanline walk, the host calls
 `snes_set_hdma_beam_enabled(g_snes, false)` so the dependency's beam simulator
 does not run a second HDMA engine. It saves the prior per-instance setting and
-restores it after the walk, including when beam HDMA was already disabled.
-Preserve this ordering when changing the scheduler.
+restores it after each operation, including when beam HDMA was already disabled.
+Suppressing beam HDMA only during drawing is insufficient: CPU execution can
+otherwise replay an old racing table over a menu's closed colour window,
+leaving coloured bands on the Give Up page. The explicit scanline walk still
+performs all authentic HDMA work. Preserve this ownership when changing the scheduler.
 
 Course, vehicle, and scene-policy snapshots are taken before NMI with the
 matching display upload. Reading them after the next guest update can combine
@@ -64,9 +67,16 @@ rate for small differences between the game clock and the audio device.
 
 ## Display composition
 
-The host retains native 256x224 and wide 398x224 scene/HUD surfaces. The wide
-view adds 71 columns on each side. Both views update each frame, so an aspect
-or style switch while paused needs no new game frame.
+The host retains Original 256x224, 16:9 398x224, and 32:9 796x224 scene/HUD
+surfaces. The wider views add 71 and 270 columns per side. All three views
+update each frame, so an aspect or style switch while paused needs no new
+game frame. Both wider views use the same scene policy, HUD capture and
+relocation, filters, transition guards, ground correction, and vehicle data.
+HUD relocation captures coverage and restores the native scene once per line,
+then applies that result to both wider views. Only placement depends on width.
+Disposable sprite captures use the pinned PPU's OBJ sizes and wrapping Y
+coordinates to skip rows with no eligible sprite. The authentic scanline walk
+and its hardware work still run on every simulation step.
 
 Side rendering operates on copied PPU state. The native centre is inserted
 before HUD relocation. Live PPU state, guest memory, physics, object lifetime,
@@ -76,10 +86,40 @@ and native sprite limits are unchanged.
   moving VRAM cache. Check camera/raster alignment and render separate spans
   when margin samples conflict at one cache address.
 - **Scenery:** unwrap recognised sky and horizon panorama strips, retaining
-  each layer's scroll and repeat period.
+  each layer's scroll and repeat period. At 32:9, draw the left and right
+  spans separately to prevent a 512-pixel tilemap address from representing
+  two different panorama positions in one pass.
 - **Vehicles:** project active cars with ROM perspective/layout data and current
   ROM/RAM graphics. Keep native pieces when available and preserve depth,
   upload timing, shadow cadence, and conservative exceptional-state guards.
+  Start side reconstruction during READY as soon as the racing OAM upload
+  is installed; opponents can already be outside the native horizontal view.
+  During grid entry, hold reconstructed body anchors at the native lower
+  limit until the slide reaches them. Entry shadows follow the animated body
+  anchor with the guest's 252 cap; READY restores normal ground shadows.
+  Culled cars need a reconstructed anchor because their native one is stale.
+  Shadow table X words contain only nine coordinate bits. Sign-extend those
+  bits before adding the signed car position, and test the full table word
+  for the terminator so a tagged zero-offset piece is retained.
+  Intact flashing bomb traffic uses the same side reconstruction as other
+  traffic. Its bomb flag alone does not indicate an explosion. A collision
+  latch or the explosion flag prevents reconstruction of an intact body;
+  native explosion pieces remain under guest control.
+  The short race-finish camera also retains racing vehicle reconstruction
+  through deceleration, the orbit and the wait before results. Stop using
+  those buffers when the standalone results upload takes ownership.
+  For 32:9, retain signed positions for cars and each shadow piece. Rasterise
+  OBJ in two bounded views with origins at -199 and +199, then insert their
+  side priority pixels before the full-width PPU colour composition. This
+  avoids nine-bit coordinate wrap while retaining PPU tile decoding, flips,
+  priority, windows, brightness, and colour math. The line enhancer takes
+  background priority buffers from an unmodified background pass, including
+  each ground-alias pass. Skip that extra pass when no side OBJ is present.
+  Hide unused full-width OAM by scanline distance, since X=-256 is visible
+  at 32:9. The player's native pose buffer also uses X-high to hide unused
+  pieces when switching between six- and eight-piece jump/landing poses.
+  Reject those pieces before coordinate unwrapping, even when their Y and
+  artwork remain populated. Opponent X-high bits retain their coordinate role. Pinned dependency sources and their ABI remain unchanged.
 - **HUD:** capture final visible RGB, including brightness, windows, and colour
   math. Restore the scene beneath old instrument positions before placing the
   instruments at the wider edges. Keep messages and repair sprites centred;
@@ -99,6 +139,11 @@ and native sprite limits are unchanged.
   Move recognised lives counters to the right edge and the results score in the upper-left
   BG3 band to the left edge. Keep other lettering centred, including text
   uncovered at an old counter position. These layouts have no racing power mask.
+  Title and standalone results menus use X-high to hide unused sprites,
+  including Records before any records exist and parked result-screen pieces.
+  Respect that hide flag in copied side passes so the 32:9 margin does not
+  expose hidden artwork. Available options retain their native positions in
+  the centre. Racing, crash effects and the GP ending keep signed side positions.
 
 | Layout | Wide view | Colour and HUD policy |
 | --- | --- | --- |
@@ -154,9 +199,11 @@ navigation, exit and confirmation handling.
 The host observes an accepted clear and clears every car on that track.
 
 The Records headers have separate tilemaps from the racing panoramas. The
-wide view covers all 15 tracks with eight shared tile arrangements, retaining
-each track's resident palette. It adds nine source tile columns per side,
-cropped to the existing 71-pixel margins. Fixed column recipes continue the
+wider views cover all 15 tracks with eight shared tile arrangements, retaining
+each track's resident palette. Each side uses a nine-column source recipe,
+cropped to the 71-pixel margins at 16:9. At 32:9, repeat these recipes outward
+with the same tile phase, using separate side passes to avoid tilemap aliasing.
+Fixed column recipes continue the
 low skyline, terrain and sky, preserving the central landmarks. Port Town
 continues its horizontal sky edge tiles above the distant structures, so its
 sloping bands do not restart in the margins. The
@@ -209,7 +256,10 @@ save only when the destination is absent and retains the original.
 
 The launcher's Display menu uses the same seven controls and order as the
 in-game menu. `launcher_settings.c` transfers standard ABI fields and stages
-Race Filter and FPS Readout, which the pinned launcher ABI does not contain.
+Aspect Ratio, Race Filter and FPS Readout. The pinned launcher ABI has only a
+boolean widescreen field; the host stages the three-way aspect choice and
+uses that field for compatibility. The saved `Widescreen` key retains values
+0 (Original) and 1 (16:9), and adds 2 (32:9). No existing setting is migrated.
 Play accepts those staged settings; closing the launcher discards them. The
 hotkey panel lists fixed Settings, Screenshot and Quit shortcuts plus the
 existing FPS binding editor. The controller page offers the input sources and
@@ -232,7 +282,30 @@ Use isolated executable-relative settings and saves for comparisons.
 | `SNESRECOMP_VALIDATE_PRESENTATION=1` | GPU readback comparison; requires the shader path and exits on a mismatch |
 | `SNESRECOMP_HUD_DIAGNOSTIC=1` | Greyscale scene with coloured protected pixels; requires the shader path |
 | `SNESRECOMP_PRESENTATION=legacy` | Compare with the older single-texture native presentation |
+| `SNESRECOMP_FRAME_TIMING=1` | Log output size, display refresh, VSync, presentation and simulation rates, and average host stage times every 120 presentations |
+| `SNESRECOMP_VSYNC=0` | Disable presentation VSync for diagnosis; retain the normal NTSC simulation clock and host limiter |
 
 Readback checks all composite RGB in Original and protected HUD RGB in effect
 styles. It checks composition, not whether every HUD item was correctly classified.
 Use synthetic tests and interactive inspection for that distinction.
+
+Frame timing reports host-call wall time, not GPU execution time. GPU queue
+waits can appear under upload, draw, or present. The `raster` field includes
+the scanline walk and scene/HUD extraction. Stage averages are milliseconds
+per host presentation, including any catch-up simulation steps. Compare runs
+with the menu closed and without screenshot or readback validation enabled.
+
+For a Windows fullscreen slowdown, run from the executable's folder in
+PowerShell, then compare the same attract sequence windowed and fullscreen:
+
+```powershell
+$env:SNESRECOMP_FRAME_TIMING = "1"
+.\fzero_recomp.exe 2> timing-vsync.log
+$env:SNESRECOMP_VSYNC = "0"
+.\fzero_recomp.exe 2> timing-no-vsync.log
+Remove-Item Env:SNESRECOMP_VSYNC, Env:SNESRECOMP_FRAME_TIMING
+```
+
+These overrides last only in that shell and do not change saved settings.
+The no-VSync comparison can tear. It distinguishes presentation waits from
+scene rendering cost without changing game speed or the selected filter.

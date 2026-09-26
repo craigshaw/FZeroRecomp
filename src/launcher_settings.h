@@ -10,6 +10,7 @@ extern "C" {
 /* Extra settings absent from the pinned launcher's shared ABI. One launcher
  * runs at a time. Edits stay staged until the user selects Play. */
 typedef struct FZeroLauncherExtras {
+  int aspect_ratio;
   int visual_style;
   int show_fps;
 } FZeroLauncherExtras;

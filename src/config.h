@@ -18,7 +18,7 @@ typedef struct FZeroSettings {
     int fullscreen;      /* 0 off, 1 borderless */
     int ignore_aspect;   /* bool: stretch to fill instead of integer scale */
     int linear_filter;   /* bool: bilinear upscale */
-    int widescreen;      /* bool: experimental wider racing view */
+    int widescreen;      /* 0 Original, 1 16:9, 2 32:9; retains the saved key */
     int visual_style;    /* 0 Original, 1 Enhanced, 2 Vivid, 3 Black & White */
     int show_fps;        /* bool: presentation rate readout */
     int enable_audio;    /* bool */

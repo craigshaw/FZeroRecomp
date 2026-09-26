@@ -17,9 +17,9 @@ F-Zero Recomp is well tested on macOS (Apple Silicon) and Windows (x64).
 It brings full widescreen racing, enhanced visuals, and expanded records
 to the original game.
 
-- **Full 16:9 widescreen racing.** See more of the track and surrounding
-  scenery, with the race HUD positioned for the wider view. The original
-  aspect ratio is also available.
+- **16:9 widescreen and 32:9 ultrawide racing.** See more of the track and surrounding
+  scenery, with the race HUD positioned for the wider view. Choose Original, 16:9, or 32:9 in the Aspect Ratio setting.
+  Title, race intro, results, GP ending, and Records extensions support both wider views.
 
 - **Enhanced visual filters.** Choose Enhanced or Vivid for richer colours,
   Black & White for a different look, or Original to retain the game's
@@ -216,11 +216,14 @@ are not implemented. Keyboard bindings can be changed in the launcher's
 Controller page and are loaded when you press Play.
 
 F1 or gamepad Select+Start opens settings and pauses gameplay and audio.
-The launcher and in-game **Display** menus share Fullscreen, Widescreen,
+The launcher and in-game **Display** menus share Fullscreen, Aspect Ratio,
 Window Scale, Stretch to Fill, Race Filter, Linear Filter, and FPS Readout.
 Launcher changes apply when you press **Play** and use the same saved settings.
-On first boot, Fullscreen, Stretch to Fill, and Widescreen are on, with the
+On first boot, Fullscreen and Stretch to Fill are on, with 16:9 and the
 Enhanced race filter selected. Existing saved choices take precedence.
+Select **Display → Aspect Ratio → 32:9** for an ultrawide screen. You can
+switch between Original, 16:9, and 32:9 while paused. Turn Stretch to Fill off
+to use integer scaling when the window and game aspect ratios differ.
 The launcher lists only supported hotkeys: F1 for settings, F12 for screenshots,
 F for the FPS readout, and Esc to quit with settings closed. The FPS shortcut
 can be rebound; the other shortcuts are fixed.
@@ -245,10 +248,10 @@ save file in place.
 
 ### Per-car records
 
-With Widescreen on, all 15 Records pages have full-width headers. The
+In 16:9 and 32:9, all 15 Records pages have full-width headers. The
 extensions use each header's original scenery tiles and colours, keeping the
 main landmarks intact. The records, car tabs and track map stay centred.
-Turn Widescreen off to use the native view.
+Select the Original aspect ratio to use the native view.
 
 Open **Records** and choose a track. Left/right cycles through the four cars
 and a fifth mixed page; up/down changes track and keeps the selected page.

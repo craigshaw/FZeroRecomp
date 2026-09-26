@@ -3,6 +3,8 @@
 The launcher remains pinned to `773155ae7d3be80a21d40851b58f99c79e003de1`.
 The patch selects project-owned Display, Hotkeys and input-source renderers,
 allows the Display card to fit seven rows, and hides unsupported pad remapping.
+The host Aspect Ratio selector stages Original, 16:9, and 32:9 without changing
+the pinned boolean widescreen ABI.
 It changes no shared ABI, persistence format, emulator behavior or other game.
 
 CMake normalises the backend's line endings, copies it into the build directory,

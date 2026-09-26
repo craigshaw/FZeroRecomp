@@ -14,11 +14,17 @@ typedef struct FZeroLayers {
     uint32_t wide_world[FZERO_LAYER_HEIGHT][FZERO_WIDE_WIDTH];
     uint32_t wide_hud[FZERO_LAYER_HEIGHT][FZERO_WIDE_WIDTH];
     uint32_t wide_capture[FZERO_LAYER_HEIGHT][FZERO_WIDE_WIDTH];
-    Ppu scratch;
+    uint32_t ultra_world[FZERO_LAYER_HEIGHT][FZERO_ULTRA_WIDTH];
+    uint32_t ultra_hud[FZERO_LAYER_HEIGHT][FZERO_ULTRA_WIDTH];
+    uint32_t ultra_capture[FZERO_LAYER_HEIGHT][FZERO_ULTRA_WIDTH];
+    Ppu scratch, sprite_scratch, background_scratch;
+    PpuZbufType ultra_sprites[FZERO_ULTRA_WIDTH];
     FZeroVehicles vehicles;
     FZeroGround ground;
     /* Policy for the pending upload, captured with vehicles and ground. */
     bool wide_scene, hud_layout, native_oam, intro_panorama, results_layout;
+    /* Title and standalone results use X-high to hide unused menu sprites. */
+    bool menu_layout;
     /* Explosion phases reuse rank slots before the full native upload begins. */
     bool crash_layout;
     /* Instrument placement is independent of selective scene effects. */

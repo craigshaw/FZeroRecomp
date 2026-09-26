@@ -36,7 +36,7 @@ static const struct SettingField {
     FIELD("IgnoreAspect", ignore_aspect, 0, 1),
     FIELD("LinearFilter", linear_filter, 0, 1),
     FIELD("ShowFPS", show_fps, 0, 1),
-    FIELD("Widescreen", widescreen, 0, 1),
+    FIELD("Widescreen", widescreen, 0, 2),
     FIELD("VisualStyle", visual_style, 0, 3),
     FIELD("EnableAudio", enable_audio, 0, 1),
     FIELD("AudioFreq", audio_freq, 32000, 96000),

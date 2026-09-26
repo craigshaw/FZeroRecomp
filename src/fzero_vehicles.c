@@ -44,6 +44,22 @@ static unsigned SizeForRow(const uint8_t *rom, int y) {
     return size;
 }
 
+static bool GridEntry(const uint8_t *ram) {
+    return ram[0x55] == 2 && ram[0x56] == 1;
+}
+
+static int BodyY(const FZeroVehicle *car, unsigned id,
+                 const uint8_t *ram, const uint8_t *rom) {
+    int height = (int8_t)ram[0xbc1 + id * 2];
+    int lift = height < 0 ? height :
+        Rom(rom, 0x08ede0)[255 - car->ground_y] * ((height * 2) & 255) / 256;
+    int y = car->ground_y - lift;
+    /* Grid entry holds native cars at 255 until the slide reaches them.
+     * Horizontally culled cars lack that per-car height initialisation;
+     * retain the same lower bound instead of wrapping them into the sky. */
+    return GridEntry(ram) && y > 255 ? 255 : y;
+}
+
 static bool Reconstruct(FZeroVehicle *car, unsigned id, const uint8_t *ram,
                         const uint8_t *rom) {
     unsigned offset = id * 2;
@@ -66,10 +82,7 @@ static bool Reconstruct(FZeroVehicle *car, unsigned id, const uint8_t *ram,
     const uint8_t *parts = Rom(rom, descriptor);
     unsigned sizes = Word(parts);
     unsigned attributes = Word(ram + 0xc40 + offset);
-    int height = (int8_t)ram[0xbc1 + offset];
-    int lift = height < 0 ? height :
-        Rom(rom, 0x08ede0)[255 - car->ground_y] * ((height * 2) & 255) / 256;
-    int y = car->ground_y - lift;
+    int y = BodyY(car, id, ram, rom);
     HidePieces(car->oam, &car->high);
     car->count = 0;
     for (unsigned p = 0; p < 8; ++p) {
@@ -115,6 +128,14 @@ static bool TouchesNativeView(const FZeroVehicle *car) {
     return false;
 }
 
+static bool BodyAvailable(unsigned flags, const uint8_t *ram, unsigned id) {
+    /* Bit 0 identifies an intact flashing bomb, not an explosion. Its
+     * collision latch starts the explosion, then bit 1 owns the effect.
+     * Only traffic can use the bomb flag with the normal body artwork. */
+    return !(flags & 2) && (!(flags & 1) ||
+        ((flags & 0x40) && !ram[0xd30 + id * 2]));
+}
+
 static bool ReprojectSideJump(FZeroVehicle *car, unsigned id, unsigned flags,
                               int x, int y, int anchor_y,
                               const uint8_t *ram, const uint8_t *rom) {
@@ -124,9 +145,9 @@ static bool ReprojectSideJump(FZeroVehicle *car, unsigned id, unsigned flags,
      * the last ground anchor and the current projection. Keep departures
      * through the near plane and any native-visible artwork under the
      * original game's control. */
-    if (!(flags & 0x10) || (flags & 3) || !(ram[0xd51 + id * 2] & 0x80) ||
-        (x >= -32 && x < 288) || x <= -FZERO_WIDE_MARGIN - 64 ||
-        x >= 256 + FZERO_WIDE_MARGIN + 64 || TouchesNativeView(car)) return false;
+    if (!(flags & 0x10) || !BodyAvailable(flags, ram, id) || !(ram[0xd51 + id * 2] & 0x80) ||
+        (x >= -32 && x < 288) || x <= -FZERO_ULTRA_MARGIN - 64 ||
+        x >= 256 + FZERO_ULTRA_MARGIN + 64 || TouchesNativeView(car)) return false;
     FZeroVehicle candidate = *car;
     for (unsigned p = 0; p < car->count; ++p) {
         unsigned high = (car->high >> (p * 2)) & 3;
@@ -154,12 +175,26 @@ static void PrepareShadows(FZeroVehicles *frame, const uint8_t *ram, const uint8
         const FZeroVehicle *car = &frame->car[id];
         if (!car->visible || car->size >= 8) continue;
         const uint8_t *parts = Rom(rom, 0x0becd0) + car->size * 16;
-        int y = car->ground_y - Rom(rom, 0x0becc2)[car->size];
+        int anchor = car->ground_y;
+        /* The grid-entry shadow routine temporarily substitutes the body
+         * anchor, capped at 252, for ground Y. Culled cars have no current
+         * native body anchor, so use the reconstructed one for those cars. */
+        if (GridEntry(ram) && id <= 3) {
+            anchor = car->added ? BodyY(car, id, ram, rom) : Word(ram + 0xc80 + id * 2);
+            if (anchor > 252) anchor = 252;
+        }
+        int y = anchor - Rom(rom, 0x0becc2)[car->size];
         for (unsigned p = 0; p < 4; ++p) {
-            int dx = (int16_t)Word(parts + p * 4);
-            if (!dx) break;
+            unsigned packed_x = Word(parts + p * 4);
+            if (!packed_x) break;
+            /* The guest keeps only nine coordinate bits after adding this
+             * table word. Its upper bits are not a signed 16-bit offset.
+             * A nonzero word with a zero offset is still a real piece. */
+            int dx = packed_x & 511;
+            if (dx >= 256) dx -= 512;
             unsigned n = frame->shadow_count++;
             int x = car->x + dx;
+            frame->shadow_x[n] = x;
             unsigned flags = parts[p * 4 + 3];
             frame->shadow_oam[n * 2] = ((unsigned)y & 255) << 8 | ((unsigned)x & 255);
             frame->shadow_oam[n * 2 + 1] = parts[p * 4 + 2] | (flags >> 1) << 8;
@@ -173,11 +208,13 @@ void FZeroVehiclesPrepare(FZeroVehicles *frame, const uint8_t *ram,
                            const uint8_t *rom, size_t rom_size) {
     frame->ready = false;
     memset(frame->car, 0, sizeof(frame->car));
-    /* The GP ending camera retains the racing vehicle buffers while showing
-     * results. Keep reconstructing cars beyond the native horizontal edges. */
+    /* READY already has racing vehicle buffers once the native intro upload
+     * ends. Finish cameras retain them through deceleration (20), the orbit
+     * (21), and the results wait (9), as does the GP ending (11). */
+    unsigned scene = ram[0xc3];
     if (!rom || rom_size != 0x80000 || !FZeroSceneWide(ram) ||
-        ram[0x54] != 2 || ram[0x55] < 3 ||
-        (ram[0xc3] && ram[0xc3] != 0x11)) {
+        ram[0x54] != 2 || ram[0x55] < 2 || !ram[0x50] ||
+        (scene && scene != 9 && scene != 0x11 && scene != 0x20 && scene != 0x21)) {
         memset(frame->jump_anchor_valid, 0, sizeof(frame->jump_anchor_valid));
         return;
     }
@@ -219,7 +256,8 @@ void FZeroVehiclesPrepare(FZeroVehicles *frame, const uint8_t *ram,
             }
             /* Visibility can return before the native graphics upload is
              * ready. Keep fresh side artwork during that brief handover. */
-            if (id && projected && ram[0x1140 + offset] == 255 && !(flags & 0x13) &&
+            if (id && projected && ram[0x1140 + offset] == 255 && !(flags & 0x10) &&
+                BodyAvailable(flags, ram, id) &&
                 (car->x < 0 || car->x >= 256)) {
                 FZeroVehicle pending = *car;
                 if (Reconstruct(&pending, id, ram, rom)) {
@@ -228,10 +266,10 @@ void FZeroVehiclesPrepare(FZeroVehicles *frame, const uint8_t *ram,
                     if (car->x < 0) ++frame->added_left; else ++frame->added_right;
                 }
             }
-        } else if (projected && !(flags & 0x13) &&
+        } else if (projected && !(flags & 0x10) && BodyAvailable(flags, ram, id) &&
                    (car->x < -32 || car->x >= 288) &&
-                   car->x > -FZERO_WIDE_MARGIN - 64 &&
-                   car->x < 256 + FZERO_WIDE_MARGIN + 64 &&
+                   car->x > -FZERO_ULTRA_MARGIN - 64 &&
+                   car->x < 256 + FZERO_ULTRA_MARGIN + 64 &&
                    Reconstruct(car, id, ram, rom)) {
             car->visible = car->added = true;
             if (car->x < 0) ++frame->added_left; else ++frame->added_right;
@@ -241,8 +279,8 @@ void FZeroVehiclesPrepare(FZeroVehicles *frame, const uint8_t *ram,
     frame->ready = true;
 }
 
-void FZeroVehiclesApply(const FZeroVehicles *frame, Ppu *copy) {
-    uint8_t hints[16] = {0};
+void FZeroVehiclesApplyOffset(const FZeroVehicles *frame, Ppu *copy, int origin) {
+    uint8_t hints[16] = {0}, right[16] = {0};
     /* The side pass owns its OAM list. Reordering or adding its entries cannot
      * alter the authentic centre or consume its hardware sprite budget. */
     memset(copy->oam, 0, sizeof(copy->oam));
@@ -263,8 +301,22 @@ void FZeroVehiclesApply(const FZeroVehicles *frame, Ppu *copy) {
         for (unsigned p = 0; p < car->count; ++p) {
             unsigned high = (car->high >> (p * 2)) & 3;
             unsigned position = car->oam[p * 2];
-            if ((!order[c] && !(position >> 8)) || (position == 0x8080 && (high & 1))) continue;
-            copy->oam[slot * 2] = position;
+            /* Player poses use X-high as a hide flag for unused pieces.
+             * Jump/landing motion still changes their Y and can retain their
+             * artwork. Decode this flag before unwrapping or translating X;
+             * otherwise the 32:9 view resurrects them in its far right margin.
+             * Opponents use genuine signed/world positions, including X-high. */
+            if ((!order[c] && ((high & 1) || !(position >> 8))) ||
+                (!car->added && position == 0x8080 && (high & 1))) continue;
+            int x = (position & 255) | ((high & 1) << 8);
+            while (x - car->x > 255) x -= 512;
+            while (x - car->x < -256) x += 512;
+            x -= origin;
+            if (x + 64 <= -(int)copy->extraLeftRight ||
+                x >= 256 + copy->extraLeftRight) continue;
+            high = (high & 2) | (((unsigned)x & 511) >> 8);
+            copy->oam[slot * 2] = (position & 0xff00) | ((unsigned)x & 255);
+            if (x >= 256) right[slot / 8] |= 1u << (slot & 7);
             copy->oam[slot * 2 + 1] = car->oam[p * 2 + 1];
             unsigned shift = (slot & 3) * 2;
             copy->highOam[slot / 4] = (copy->highOam[slot / 4] & ~(3u << shift)) | high << shift;
@@ -272,16 +324,26 @@ void FZeroVehiclesApply(const FZeroVehicles *frame, Ppu *copy) {
             ++slot;
         }
     }
-    for (unsigned p = 0; p < frame->shadow_count; ++p, ++slot) {
-        copy->oam[slot * 2] = frame->shadow_oam[p * 2];
+    for (unsigned p = 0; p < frame->shadow_count; ++p) {
+        int x = frame->shadow_x[p] - origin;
+        if (x + 64 <= -(int)copy->extraLeftRight ||
+            x >= 256 + copy->extraLeftRight) continue;
+        copy->oam[slot * 2] = (frame->shadow_oam[p * 2] & 0xff00) | ((unsigned)x & 255);
+        if (x >= 256) right[slot / 8] |= 1u << (slot & 7);
         copy->oam[slot * 2 + 1] = frame->shadow_oam[p * 2 + 1];
         unsigned shift = (slot & 3) * 2;
-        unsigned high = (frame->shadow_high[p / 4] >> ((p & 3) * 2)) & 3;
+        unsigned high = ((frame->shadow_high[p / 4] >> ((p & 3) * 2)) & 2) |
+                        (((unsigned)x & 511) >> 8);
         copy->highOam[slot / 4] = (copy->highOam[slot / 4] & ~(3u << shift)) | high << shift;
         hints[slot / 8] |= 1u << (slot & 7);
+        ++slot;
     }
     copy->oamaddl = copy->oamaddh = 0;
     PpuWsSetOamLeftHints(copy, hints);
-    PpuWsSetOamRightHints(copy, hints);
+    PpuWsSetOamRightHints(copy, right);
     copy->renderFlags |= kPpuRenderFlags_NoSpriteLimits;
+}
+
+void FZeroVehiclesApply(const FZeroVehicles *frame, Ppu *copy) {
+    FZeroVehiclesApplyOffset(frame, copy, 0);
 }

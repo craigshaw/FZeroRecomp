@@ -108,6 +108,53 @@ static FZeroLayers *g_layers;
 static FZeroRecordsRuntime g_records;
 static bool g_save_writable;
 
+/* Opt-in wall-clock measurements. Draw/upload times include CPU submission;
+ * GPU queue waits can occur in these calls or Present, not just in Draw. */
+enum { PERF_GAME, PERF_RASTER, PERF_UPLOAD, PERF_DRAW, PERF_OVERLAY,
+       PERF_PRESENT, PERF_WAIT, PERF_COUNT };
+typedef struct FrameTiming {
+  bool enabled;
+  uint64_t start, mark, frame_start, max_frame;
+  uint64_t elapsed[PERF_COUNT];
+  unsigned frames, steps;
+} FrameTiming;
+
+static void FrameTimingMark(FrameTiming *timing, unsigned stage) {
+  if (!timing->enabled) return;
+  uint64_t now = SDL_GetTicksNS();
+  timing->elapsed[stage] += now - timing->mark;
+  timing->mark = now;
+}
+
+static void FrameTimingReport(FrameTiming *timing, SDL_Window *window,
+                              SDL_Renderer *renderer, unsigned steps) {
+  if (!timing->enabled) return;
+  uint64_t now = SDL_GetTicksNS(), frame = now - timing->frame_start;
+  if (frame > timing->max_frame) timing->max_frame = frame;
+  timing->steps += steps;
+  if (++timing->frames < 120) return;
+  int width = 0, height = 0, vsync = 0;
+  SDL_GetRenderOutputSize(renderer, &width, &height);
+  SDL_GetRenderVSync(renderer, &vsync);
+  const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
+  double seconds = (now - timing->start) / 1e9;
+  double scale = 1.0 / (timing->frames * 1e6);
+  fprintf(stderr, "[Perf] %dx%d %s display=%.3fHz vsync=%d fps=%.2f steps/s=%.2f "
+          "ms/frame: game=%.3f raster=%.3f upload=%.3f draw=%.3f overlay=%.3f "
+          "present=%.3f wait=%.3f max=%.3f\n",
+          width, height, (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) ? "fullscreen" : "windowed",
+          mode ? (double)mode->refresh_rate : 0.0, vsync,
+          timing->frames / seconds, timing->steps / seconds,
+          timing->elapsed[PERF_GAME] * scale, timing->elapsed[PERF_RASTER] * scale,
+          timing->elapsed[PERF_UPLOAD] * scale, timing->elapsed[PERF_DRAW] * scale,
+          timing->elapsed[PERF_OVERLAY] * scale, timing->elapsed[PERF_PRESENT] * scale,
+          timing->elapsed[PERF_WAIT] * scale, timing->max_frame / 1e6);
+  fflush(stderr);
+  memset(timing, 0, sizeof(*timing));
+  timing->enabled = true;
+  timing->start = now;
+}
+
 static void SaveRecords(void) {
   char message[384];
   if (!g_save_writable) return;
@@ -589,7 +636,12 @@ int main(int argc, char **argv) {
   /* Request VSync for complete images without tearing. The game clock sets
    * simulation speed independently; the end-of-loop wait also paces renderers
    * that do not support VSync. */
-  SDL_SetRenderVSync(g_renderer, 1);
+  /* A diagnostic override separates display/driver waits from CPU work.
+   * Simulation keeps its NTSC clock with either presentation choice. */
+  const char *vsync_env = getenv("SNESRECOMP_VSYNC");
+  int requested_vsync = vsync_env && !strcmp(vsync_env, "0") ? 0 : 1;
+  if (!SDL_SetRenderVSync(g_renderer, requested_vsync))
+    fprintf(stderr, "[Timing] VSync request failed: %s\n", SDL_GetError());
   SDL_SetRenderLogicalPresentation(
       g_renderer, FZeroDisplayWidth(settings.widescreen), FZERO_FRAME_HEIGHT,
       settings.ignore_aspect ? SDL_LOGICAL_PRESENTATION_STRETCH
@@ -614,7 +666,8 @@ int main(int argc, char **argv) {
                                g_layers ? g_layers->hud : NULL))
     Die(SDL_GetError());
 
-  if (g_layers && !FZeroPresentationUploadWide(g_presentation, g_layers->wide_world, g_layers->wide_hud))
+  if (g_layers && (!FZeroPresentationUploadWide(g_presentation, g_layers->wide_world, g_layers->wide_hud) ||
+        !FZeroPresentationUploadUltra(g_presentation, g_layers->ultra_world, g_layers->ultra_hud)))
     Die(SDL_GetError());
 
   if (settings.enable_audio) {
@@ -691,7 +744,12 @@ int main(int argc, char **argv) {
   long host_frame_number = 0;
   FZeroGameClock game_clock;
   FZeroGameClockInit(&game_clock, SDL_GetTicksNS());
-  fprintf(stderr, "[Timing] Game clock: 60.098812 Hz; VSync requested\n");
+  fprintf(stderr, "[Timing] Game clock: 60.098812 Hz; VSync %s\n",
+          requested_vsync ? "requested" : "disabled by diagnostic override");
+  const char *timing_env = getenv("SNESRECOMP_FRAME_TIMING");
+  FrameTiming timing = {0};
+  timing.enabled = timing_env && !strcmp(timing_env, "1");
+  timing.start = timing.enabled ? SDL_GetTicksNS() : 0;
 #if defined(RECOMP_LAUNCHER) && SNESRECOMP_SDL3
   bool prev_overlay_open = false;
 #endif
@@ -703,6 +761,7 @@ int main(int argc, char **argv) {
   const char *present_env = getenv("SNESRECOMP_MAX_PRESENTATIONS");
   unsigned long max_presentations = present_env ? strtoul(present_env, NULL, 10) : 0;
   while (running) {
+    if (timing.enabled) timing.frame_start = SDL_GetTicksNS();
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
       if (g_runtime_imgui && FZeroRuntimeUiIsOpen(g_runtime_ui))
@@ -755,6 +814,7 @@ int main(int argc, char **argv) {
     if (!focused) game_clock.pending_input = 0;
     FZeroGameSteps due = FZeroGameClockPoll(&game_clock, SDL_GetTicksNS(),
                                            overlay_open, held_input);
+    if (timing.enabled) timing.mark = SDL_GetTicksNS();
     for (unsigned step = 0; step < due.count; ++step) {
       ++host_frame_number;
       uint32 game_input = FZeroRecordsInput(&g_records, g_ram,
@@ -766,7 +826,9 @@ int main(int argc, char **argv) {
       if (max_frames > 0 && host_frame_number >= max_frames) running = false;
       /* The draw walk also executes scanline work. Keep it for every game
        * tick, including ticks whose image is not presented. */
+      FrameTimingMark(&timing, PERF_GAME);
       g_rtl_game_info->draw_ppu_frame();
+      FrameTimingMark(&timing, PERF_RASTER);
       if (!running) break;
     }
     if (due.count) {
@@ -774,22 +836,26 @@ int main(int argc, char **argv) {
                                    g_layers ? (void *)g_layers->world : g_pixels,
                                    g_layers ? g_layers->hud : NULL))
         Die(SDL_GetError());
-      if (g_layers && !FZeroPresentationUploadWide(g_presentation, g_layers->wide_world, g_layers->wide_hud))
+      if (g_layers && (!FZeroPresentationUploadWide(g_presentation, g_layers->wide_world, g_layers->wide_hud) ||
+        !FZeroPresentationUploadUltra(g_presentation, g_layers->ultra_world, g_layers->ultra_hud)))
         Die(SDL_GetError());
     }
 
-    FZeroPresentationSetWidescreen(g_presentation, settings.widescreen != 0);
+    FrameTimingMark(&timing, PERF_UPLOAD);
+    FZeroPresentationSetWidescreen(g_presentation, settings.widescreen);
     SDL_RenderClear(g_renderer);
     FZeroVisualStyle style = hud_diagnostic ? FZERO_VISUAL_HUD_DIAGNOSTIC :
                               (FZeroVisualStyle)settings.visual_style;
     FZeroPresentationSetStyle(g_presentation, style);
     if (!FZeroPresentationDraw(g_presentation)) Die(SDL_GetError());
+    FrameTimingMark(&timing, PERF_DRAW);
     if (validate_video) {
       bool hud_only = style != FZERO_VISUAL_ORIGINAL &&
                       FZeroPresentationHasShader(g_presentation);
       bool matches = settings.widescreen ?
-          FZeroPresentationMatchesWide(g_presentation,g_layers->wide_world,
-                                       g_layers->wide_hud,hud_only) :
+          FZeroPresentationMatchesWide(g_presentation,
+              settings.widescreen == 2 ? (void *)g_layers->ultra_world : g_layers->wide_world,
+              settings.widescreen == 2 ? (void *)g_layers->ultra_hud : g_layers->wide_hud,hud_only) :
           FZeroPresentationMatchesMasked(g_presentation,g_pixels,hud_only?g_layers->hud:NULL);
       if (!matches) {
         fprintf(stderr, "[Video] Frame %ld validation failed: %s\n", host_frame_number, SDL_GetError());
@@ -818,14 +884,18 @@ int main(int argc, char **argv) {
       fzero_imgui_render_overlay(g_runtime_imgui, g_runtime_ui, g_renderer,
                                 settings.show_fps, frame_rate.fps);
 #endif
+    FrameTimingMark(&timing, PERF_OVERLAY);
     if (SDL_RenderPresent(g_renderer))
       FZeroFrameRatePresent(&frame_rate, SDL_GetTicksNS());
+    FrameTimingMark(&timing, PERF_PRESENT);
 
     if (max_presentations && ++presentation_frames >= max_presentations)
       running = false;
 
     uint64_t wait_ns = FZeroGameClockWait(&game_clock, SDL_GetTicksNS());
     if (wait_ns) SDL_DelayPrecise(wait_ns);
+    FrameTimingMark(&timing, PERF_WAIT);
+    FrameTimingReport(&timing, g_window, g_renderer, due.count);
   }
 
   SaveRecords();

@@ -57,9 +57,10 @@ static const RecordsBackdrop backdrops[]={
     }
 };
 
-bool FZeroRecordsBackdropLine(FZeroRecordsView *v,const FZeroRecordsRuntime *r,
-                              const Ppu *ppu,int line,uint8_t *pixels,size_t pitch) {
-    if(line<1 || line>56 || !r || !r->initialized || !r->view_active ||
+bool FZeroRecordsBackdropLineAtMargin(FZeroRecordsView *v,const FZeroRecordsRuntime *r,
+                              const Ppu *ppu,int line,uint8_t *pixels,size_t pitch,int margin) {
+    if((margin!=FZERO_WIDE_MARGIN && margin!=FZERO_ULTRA_MARGIN) ||
+       line<1 || line>56 || !r || !r->initialized || !r->view_active ||
        r->view_track>=FZERO_RECORD_TRACKS || PPU_mode(ppu)!=1 ||
        PPU_bigTiles(ppu,0) || PPU_bigTiles(ppu,1) ||
        PPU_forcedBlank(ppu) || ppu->extraLeftRight || PPU_objInterlace(ppu) ||
@@ -74,28 +75,39 @@ bool FZeroRecordsBackdropLine(FZeroRecordsView *v,const FZeroRecordsRuntime *r,
     const RecordsBackdrop *backdrop=&backdrops[track_backdrop[r->view_track]];
     for(unsigned i=0;i<3;++i)
         if(ppu->vram[backdrop->landmarks[i][0]]!=backdrop->landmarks[i][1])return false;
-    /* Each side uses nine whole source columns, cropped to 71 pixels by the
-     * renderer. Keep the native tile phase, palette, priority and flip bits.
-     * No new graphics, scaling or random placement are used. */
-    memcpy(&v->scratch,ppu,sizeof(*ppu));Ppu *copy=&v->scratch;
-    copy->renderBuffer=pixels;copy->renderPitch=pitch;
-    PpuClearOverlayBindings(copy);PpuSetExtraSpace(copy,FZERO_WIDE_MARGIN);
-    copy->screenEnabled[0]&=3;copy->screenEnabled[1]&=3;
-    for(unsigned layer=0;layer<2;++layer) {
-        unsigned base=layer*0x1000;
-        for(unsigned row=0;row<8;++row)for(unsigned side=0;side<2;++side)
-            for(unsigned x=0;x<9;++x) {
-                unsigned destination=side?x:23+x;
-                unsigned source=row<7?backdrop->columns[layer][side][x]:0;
-                /* Port Town's sky bands slope through the native image.
-                 * Their edge tiles contain horizontal runs: continue those
-                 * levels without restarting the slope or repeating islands. */
+    /* Repeat the reviewed nine-column recipes outward. Render each side
+     * separately so the 64-column tilemap cannot alias the opposite side.
+     * The nearest nine columns retain the exact 16:9 phase. */
+    uint32_t left[FZERO_ULTRA_MARGIN];
+    uint32_t *row_pixels=(uint32_t *)(pixels+(line-1)*pitch);
+    int columns=(margin+7)/8;
+    for(int side=0;side<2;++side) {
+        memcpy(&v->scratch,ppu,sizeof(*ppu));Ppu *copy=&v->scratch;
+        copy->renderBuffer=pixels;copy->renderPitch=pitch;
+        PpuClearOverlayBindings(copy);PpuSetExtraSpace(copy,margin);
+        copy->screenEnabled[0]&=3;copy->screenEnabled[1]&=3;
+        for(unsigned layer=0;layer<2;++layer) {
+            unsigned base=layer*0x1000;
+            for(unsigned row=0;row<8;++row)for(int n=0;n<columns;++n) {
+                int tile=side?32+n:-columns+n;
+                unsigned phase=side?n%9:((tile%9)+9)%9;
+                unsigned source=row<7?backdrop->columns[layer][side][phase]:0;
                 if(backdrop->edge_sky && layer==1 && row<4)source=side?31:0;
-                copy->vram[base+0x400+row*32+destination]=ppu->vram[base+row*32+source];
+                unsigned column=(unsigned)tile&63;
+                unsigned destination=base+(column/32)*0x400+row*32+column%32;
+                copy->vram[destination]=ppu->vram[base+row*32+source];
             }
+        }
+        ppu_runLine(copy,line);
+        if(!side)memcpy(left,row_pixels,margin*sizeof(*left));
     }
-    ppu_runLine(copy,line);
+    memcpy(row_pixels,left,margin*sizeof(*left));
     return true;
+}
+
+bool FZeroRecordsBackdropLine(FZeroRecordsView *v,const FZeroRecordsRuntime *r,
+                              const Ppu *ppu,int line,uint8_t *pixels,size_t pitch) {
+    return FZeroRecordsBackdropLineAtMargin(v,r,ppu,line,pixels,pitch,FZERO_WIDE_MARGIN);
 }
 
 static void TimeTiles(uint16_t *row,uint16_t time) {

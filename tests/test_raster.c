@@ -13,8 +13,8 @@
 
 /* This test exercises raster ordering with the records renderer disabled. */
 void FZeroRecordsViewLine(FZeroRecordsView *v, const FZeroRecordsRuntime *r, const Ppu *p, int line) { abort(); }
-bool FZeroRecordsBackdropLine(FZeroRecordsView *v, const FZeroRecordsRuntime *r,
-                             const Ppu *p, int line, uint8_t *pixels, size_t pitch) {
+bool FZeroRecordsBackdropLineAtMargin(FZeroRecordsView *v, const FZeroRecordsRuntime *r,
+                             const Ppu *p, int line, uint8_t *pixels, size_t pitch, int margin) {
     if(r)abort();
     return false;
 }
@@ -91,12 +91,17 @@ void bank_00_8601(CpuState *c) {
  * No cartridge code executes. */
 static unsigned prepared;
 static bool expected_wide, expected_hud;
-void cpu_state_init(CpuState *c, uint8 *ram) { c->S = 0x1ff; }
+void cpu_state_init(CpuState *c, uint8 *ram) {
+    CHECK(snes.hdmaBeamOff);
+    c->S = 0x1ff;
+}
 int interp_bridge_run_scheduler(CpuState *c, uint32 entry, uint32 yield, uint16 flag) {
+    CHECK(snes.hdmaBeamOff);
     memset(g_ram, 0, sizeof(g_ram));
     return 0;
 }
 void bank_00_80D9(CpuState *c) {
+    CHECK(snes.hdmaBeamOff);
     CHECK(prepared == 2);
     CHECK(layers.wide_scene == expected_wide && layers.hud_layout == expected_hud);
     c->S += 4;
@@ -110,7 +115,9 @@ void FZeroGroundPrepare(FZeroGround *f, const uint8_t *ram) {
 
 static void CheckSceneTransitions(void) {
     FZeroSetLayers(&layers);
+    snes.hdmaBeamOff = false;
     FZeroRunOneFrameOfGame(); /* Synthetic reset, before the first upload. */
+    CHECK(!snes.hdmaBeamOff);
     const struct { unsigned mode, process, exception, obj; bool wide, hud; } cases[] = {
         {2,3,0,1,true,true}, {2,5,0,1,true,true}, {2,4,0,1,true,true},
         {2,3,0x40,1,true,true}, {2,3,0x40,0,true,true},
@@ -131,10 +138,13 @@ static void CheckSceneTransitions(void) {
         g_ram[0xc3]=cases[i].exception; g_ram[0x50]=cases[i].obj;
         g_ram[0x5c]=1; g_ram[0x5f]=4;
         prepared=0; expected_wide=cases[i].wide; expected_hud=cases[i].hud;
+        snes.hdmaBeamOff = (i & 1) != 0;
         FZeroRunOneFrameOfGame();
+        CHECK(snes.hdmaBeamOff == ((i & 1) != 0));
         CHECK(prepared==2 && !g_ram[0x54]);
         CHECK(layers.wide_scene==expected_wide && layers.hud_layout==expected_hud);
         CHECK(layers.native_oam==!cases[i].obj);
+        CHECK(layers.menu_layout==(cases[i].wide && cases[i].mode==3));
         CHECK(layers.crash_layout==(cases[i].wide && cases[i].mode==2 &&
               cases[i].exception==0x40 && !cases[i].obj));
         CHECK(layers.move_hud==(cases[i].hud ||
@@ -184,7 +194,7 @@ static void CheckSceneTransitions(void) {
         CHECK(FZeroSceneTitle(g_ram) && FZeroSceneWide(g_ram));
         prepared=0; expected_wide=true; expected_hud=false;
         FZeroRunOneFrameOfGame();
-        CHECK(!layers.move_hud && layers.native_oam);
+        CHECK(!layers.move_hud && layers.native_oam && layers.menu_layout);
         g_ram[0x5c]=1; g_ram[0x81]=1;
     }
     g_ram[0x55]=3; CHECK(!FZeroSceneWide(g_ram));
@@ -198,7 +208,7 @@ static void CheckSceneTransitions(void) {
     CHECK(FZeroSceneTitle(g_ram) && FZeroSceneWide(g_ram));
     prepared=0; expected_wide=true; expected_hud=false;
     FZeroRunOneFrameOfGame();
-    CHECK(layers.native_oam && !layers.move_hud && !layers.intro_panorama);
+    CHECK(layers.native_oam && !layers.move_hud && !layers.intro_panorama && layers.menu_layout);
     g_ram[0x54]=1; g_ram[0x55]=0; g_ram[0x5c]=1; g_ram[0x81]=0;
     CHECK(!FZeroSceneWide(g_ram));
     g_ram[0x5c]=0; g_ram[0x81]=1; CHECK(!FZeroSceneWide(g_ram));

@@ -3,6 +3,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include "fzero_layers.h"
+#ifdef FZERO_TEST_ULTRA
+#define FZERO_WIDE_WIDTH FZERO_ULTRA_WIDTH
+#define FZERO_WIDE_MARGIN FZERO_ULTRA_MARGIN
+#define wide_world ultra_world
+#define wide_hud ultra_hud
+#define wide_capture ultra_capture
+#endif
+
 #include "snes/snes.h"
 
 Snes *g_snes;
@@ -26,6 +34,12 @@ static void CheckPolicy(bool active, bool hud_layout, int line) {
     memcpy(&saved, &ppu, sizeof(ppu));
     FZeroLayersProcessLine(&layers, &ppu, line, active, hud_layout);
     CHECK(!memcmp(&saved, &ppu, sizeof(ppu)));
+#ifndef FZERO_TEST_ULTRA
+    if (!layers.move_hud) for (int x = 0; x < FZERO_WIDE_WIDTH; ++x) {
+        CHECK(layers.ultra_world[line-1][x+FZERO_ULTRA_MARGIN-FZERO_WIDE_MARGIN] == layers.wide_world[line-1][x]);
+        CHECK(layers.ultra_hud[line-1][x+FZERO_ULTRA_MARGIN-FZERO_WIDE_MARGIN] == layers.wide_hud[line-1][x]);
+    }
+#endif
     for (int x = 0; x < 256; ++x) {
         uint32_t pixel = layers.hud[line - 1][x] ? layers.hud[line - 1][x] : layers.world[line - 1][x];
         CHECK((pixel & 0xffffff) == (original[line - 1][x] & 0xffffff));
@@ -564,6 +578,78 @@ static void CheckTextFilters(bool results) {
     memset(&layers,0,sizeof(layers));
 }
 
+/* Exercise the PPU's actual OBJ row coverage, including the final visible
+ * row, the first absent row and Y wrapping, for HUD and side sprites. */
+static void CheckSpriteRowBounds(void) {
+    static const unsigned sizes[8][2] = {
+        {8,16}, {8,32}, {8,64}, {16,32},
+        {16,64}, {32,64}, {16,32}, {16,32}
+    };
+    for (unsigned mode=0; mode<8; ++mode)
+        for (unsigned large=0; large<2; ++large)
+            for (unsigned wrap=0; wrap<2; ++wrap) {
+                memset(&layers,0,sizeof(layers));
+                ppu_reset(&ppu);
+                PpuBeginDrawing(&ppu,(uint8_t*)original,sizeof(original[0]),kPpuRenderFlags_NewRenderer);
+                ppu.inidisp=15; ppu.bgmode=1; ppu.screenEnabled[0]=0x10;
+                ppu.obsel=mode<<5; ppu.cgram[0]=0x001f; ppu.cgram[129]=0x03e0;
+                for (int slot=0;slot<128;++slot) SetSprite(slot,256,128,false,0);
+                for (unsigned tile=0;tile<256;++tile)
+                    for (unsigned row=0;row<8;++row) ppu.vram[tile*16+row]=0xff;
+                unsigned y=wrap?250:100, height=sizes[mode][large];
+                SetSprite(20,24,y,large,0x3000);
+                SetSprite(68,-64,y,large,0x3000);
+                layers.move_hud=true;
+                int offsets[]={-1,0,(int)height-1,(int)height};
+                for (unsigned i=0;i<4;++i) {
+                    unsigned row=(uint8_t)(y+offsets[i]);
+                    if (row>=224) continue;
+                    bool visible=offsets[i]>=0 && (unsigned)offsets[i]<height;
+                    CheckAt(true,row+1);
+                    CHECK(layers.wide_hud[row][24]==(visible?0xff00ff00u:0));
+                    CHECK(layers.wide_world[row][24+FZERO_WIDE_MARGIN]==0xff0000u);
+                    CHECK(layers.wide_world[row][FZERO_WIDE_MARGIN-64]==
+                          (visible?0x00ff00u:0xff0000u));
+                }
+            }
+}
+
+static void CheckHiddenMenuEntries(void) {
+    memset(&layers, 0, sizeof(layers));
+    layers.native_oam = layers.menu_layout = true;
+    ppu_reset(&ppu);
+    PpuBeginDrawing(&ppu, (uint8_t *)original, sizeof(original[0]), kPpuRenderFlags_NewRenderer);
+    ppu.inidisp = 15; ppu.bgmode = 1; ppu.screenEnabled[0] = 0x10;
+    ppu.cgram[0] = 0x03e0; ppu.cgram[129] = 0x7c1f;
+    for (int row = 0; row < 8; ++row) ppu.vram[row] = 0xff;
+    /* The title toggles X-high without changing the lettering coordinates.
+     * Test fresh/available/fresh, including hidden text near the left edge. */
+    const int positions[] = {80, 104, 200, 248};
+    for (int results = 0; results < 2; ++results)
+    for (int phase = 0; phase < 3; ++phase) {
+        layers.results_layout = results != 0;
+        bool hidden = phase != 1;
+        for (unsigned i = 0; i < sizeof(positions)/sizeof(positions[0]); ++i) {
+            SetSprite(33, positions[i] + (hidden ? 256 : 0), 152, false, 0x3000);
+            CheckPolicy(true, false, 153);
+            for (int x = 0; x < FZERO_WIDE_WIDTH; ++x) {
+                bool letter = !hidden && x >= FZERO_WIDE_MARGIN + positions[i] &&
+                    x < FZERO_WIDE_MARGIN + positions[i] + 8;
+                uint32_t pixel = layers.wide_hud[152][x];
+                if (!pixel) pixel = layers.wide_world[152][x];
+                CHECK((pixel & 0xffffff) == (letter ? 0xff00ff : 0x00ff00));
+            }
+        }
+    }
+    /* Other native-upload scenes still accept actual signed side sprites. */
+    layers.menu_layout = false;
+    layers.results_layout = false;
+    SetSprite(33, -40, 152, false, 0x3000);
+    CheckPolicy(true, false, 153);
+    CHECK(layers.wide_hud[152][FZERO_WIDE_MARGIN - 40] == 0xffff00ffu);
+    memset(&layers, 0, sizeof(layers));
+}
+
 int main(void) {
     ppu_reset(&ppu);
     PpuBeginDrawing(&ppu, (uint8_t *)original, sizeof(original[0]), kPpuRenderFlags_NewRenderer);
@@ -738,13 +824,17 @@ int main(void) {
     CheckAt(true,111); CHECK(!layers.wide_hud[110][0]);
     ppu.inidisp=0x80; CheckAt(true,111);
     CHECK(!layers.wide_world[110][0] && layers.wide_hud[110][0]==0xff000000);
-    CheckWideSprites();
+#ifndef FZERO_TEST_ULTRA
+    CheckWideSprites(); /* Raw nine-bit fallback is bounded to the old view. */
+#endif
     CheckMovedHud();
     CheckTextFilters(false);
     CheckTextFilters(true);
     CheckGpEndingHud();
     CheckCrashFilter();
     CheckNativeCounters();
+    CheckSpriteRowBounds();
+    CheckHiddenMenuEntries();
     TestVehicles();
     TestGround();
     puts("layer extraction tests: passed");

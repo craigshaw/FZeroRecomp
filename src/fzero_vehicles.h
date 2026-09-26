@@ -19,6 +19,7 @@ typedef struct FZeroVehicles {
     bool ready;
     FZeroVehicle car[6];
     uint16_t shadow_oam[24];
+    int shadow_x[12];
     uint8_t shadow_high[3];
     unsigned shadow_count;
     int jump_anchor_y[6];
@@ -37,3 +38,6 @@ void FZeroVehiclesPrepare(FZeroVehicles *frame, const uint8_t *ram,
 /* Apply only to the disposable wide PPU. The authentic centre is inserted
  * after this pass, and live OAM, VRAM and gameplay remain untouched. */
 void FZeroVehiclesApply(const FZeroVehicles *frame, Ppu *copy);
+
+/* Translate known signed positions for a bounded side raster pass. */
+void FZeroVehiclesApplyOffset(const FZeroVehicles *frame, Ppu *copy, int origin);

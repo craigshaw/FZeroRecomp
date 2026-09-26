@@ -57,7 +57,8 @@ bool FZeroGroundRenderLine(FZeroGround *ground, Ppu *copy, int line) {
     if (!ground->ready || line < 1 || line > FZERO_DISPLAY_HEIGHT ||
         PPU_mode(copy) != 7 || PPU_m7extBg(copy) || (copy->m7sel & 0xc0) ||
         PPU_mosaicEnabled(copy, 0) || (copy->obsel & 31) != 2 ||
-        copy->extraLeftRight != FZERO_WIDE_MARGIN) return false;
+        (copy->extraLeftRight != FZERO_WIDE_MARGIN &&
+         copy->extraLeftRight != FZERO_ULTRA_MARGIN)) return false;
 
     int cx = Signed13(copy->m7matrix[4]), cy = Signed13(copy->m7matrix[5]);
     int dh = ScrollDelta(Signed13(copy->m7matrix[6]) - cx);
@@ -77,14 +78,14 @@ bool FZeroGroundRenderLine(FZeroGround *ground, Ppu *copy, int line) {
      * metadata paired with these raster registers, never a newer camera. */
     if ((ox | oy) & 1023) return false;
 
-    enum { count = FZERO_WIDE_MARGIN * 2 };
-    uint16_t addresses[count];
-    uint8_t tiles[count];
-    uint32_t pixels[count];
+    const int margin = copy->extraLeftRight, count = margin * 2;
+    uint16_t addresses[FZERO_ULTRA_MARGIN * 2];
+    uint8_t tiles[FZERO_ULTRA_MARGIN * 2];
+    uint32_t pixels[FZERO_ULTRA_MARGIN * 2];
     unsigned corrected = 0;
     for (int i = 0; i < count; ++i) {
-        int x = i < FZERO_WIDE_MARGIN ? i - FZERO_WIDE_MARGIN :
-                                                       i - FZERO_WIDE_MARGIN + 256;
+        int x = i < margin ? i - margin :
+                                                       i - margin + 256;
         int rx = PPU_m7xFlip(copy) ? 255 - x : x;
         unsigned u = (sx + (uint32_t)(copy->m7matrix[0] * rx)) >> 8;
         unsigned v = (sy + (uint32_t)(copy->m7matrix[2] * rx)) >> 8;
@@ -105,7 +106,7 @@ bool FZeroGroundRenderLine(FZeroGround *ground, Ppu *copy, int line) {
         if (i == count || conflict) {
             ppu_runLine(copy, line);
             for (int j = first; j < i; ++j)
-                pixels[j] = output[j < FZERO_WIDE_MARGIN ? j : j + 256];
+                pixels[j] = output[j < margin ? j : j + 256];
             if (i == count) break;
             ++ground->split_passes;
             first = i;
@@ -117,7 +118,7 @@ bool FZeroGroundRenderLine(FZeroGround *ground, Ppu *copy, int line) {
         copy->vram[address] = (copy->vram[address] & 0xff00) | tiles[i];
     }
     for (int i = 0; i < count; ++i)
-        output[i < FZERO_WIDE_MARGIN ? i : i + 256] = pixels[i];
+        output[i < margin ? i : i + 256] = pixels[i];
     ++ground->lines;
     ground->corrected_pixels += corrected;
     return true;

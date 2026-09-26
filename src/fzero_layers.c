@@ -1,11 +1,30 @@
 #include "fzero_layers.h"
 #include <string.h>
 
-/* Skip capture passes when none of the selected slots can reach this line.
- * 64 is the largest supported sprite dimension; this is only an optimisation. */
+_Static_assert(FZERO_ULTRA_MARGIN <= kPpuExtraLeftRight, "PPU must fit 32:9 margins");
+
+typedef struct WideView {
+    uint32_t *world, *hud, *capture;
+    int width, margin;
+} WideView;
+
+/* Match the pinned PPU's OBJ height and wrapping row calculation. A copied
+ * capture pass cannot contribute pixels outside these rows. */
+static bool SpriteOnLine(const Ppu *ppu, int y, unsigned slot) {
+    static const uint8_t sizes[8][2] = {
+        {8,16}, {8,32}, {8,64}, {16,32},
+        {16,64}, {32,64}, {16,32}, {16,32}
+    };
+    unsigned large = (ppu->highOam[slot / 4] >> ((slot & 3) * 2 + 1)) & 1;
+    unsigned height = sizes[PPU_objSize(ppu)][large];
+    if (PPU_objInterlace(ppu)) height /= 2;
+    return (uint8_t)(y - (ppu->oam[slot * 2] >> 8)) < height;
+}
+
+/* Skip only disposable sprite passes. The authentic scanline still runs. */
 static bool RangeOnLine(const Ppu *ppu, int y, int first, int count) {
     for (int slot = first; slot < first + count; ++slot)
-        if ((uint8_t)(y - (ppu->oam[slot * 2] >> 8)) < 64) return true;
+        if (SpriteOnLine(ppu, y, slot)) return true;
     return false;
 }
 
@@ -56,7 +75,7 @@ static void CaptureHudSprites(FZeroLayers *layers, const Ppu *ppu, int line,
  * next strip duplicated in the right tilemap page for native scrolling.
  * Unwrap horizontal positions before selecting a strip. A hardware 512-pixel
  * wrap alone selects the wrong strip at the extended screen edges. */
-static void ExtendPanorama(Ppu *copy, const Ppu *ppu, int line, int layer, bool intro) {
+static void ExtendPanorama(Ppu *copy, const Ppu *ppu, int line, int layer, bool intro, int left_x, int right_x) {
     const int first_row = layer == 0 ? 4 : 11;
     const int first_scroll = layer == 0 ? 36 : 92;
     const int period = layer == 0 ? 896 : 768;
@@ -75,8 +94,8 @@ static void ExtendPanorama(Ppu *copy, const Ppu *ppu, int line, int layer, bool 
     int strip_row = row - first_row - phase * 7;
     if (strip_row < 0 || strip_row >= 7) return;
     /* +512 makes division well-defined for the negative left margin. */
-    int left = ((int)ppu->hScroll[layer] - FZERO_WIDE_MARGIN + 512) / 8 - 64;
-    int right = (ppu->hScroll[layer] + 255 + FZERO_WIDE_MARGIN) / 8;
+    int left = ((int)ppu->hScroll[layer] + left_x + 512) / 8 - 64;
+    int right = (ppu->hScroll[layer] + right_x) / 8;
     for (int tile = left; tile <= right; ++tile) {
         int position = (phase * 256 + tile * 8 + period) % period;
         int source = base + (first_row + (position / 256) * 7 + strip_row) * 32 +
@@ -121,6 +140,124 @@ static void ExtendVehicleSprites(Ppu *copy) {
     copy->renderFlags |= kPpuRenderFlags_NoSpriteLimits;
 }
 
+/* Hide by distance from this scanline. X=-256 is visible at 32:9 and is
+ * therefore not a valid sentinel for an ultrawide side pass. */
+static void HideAllSprites(Ppu *copy, int line) {
+    for (unsigned slot = 0; slot < 128; ++slot)
+        copy->oam[slot * 2] = ((line + 64) & 255) << 8;
+}
+
+/* Rasterise signed vehicle positions in two overlapping, bounded views.
+ * The PPU still supplies tile decoding, flips, OBJ priority and transparency.
+ * Only the resulting side priority pixels are used by the full-width pass. */
+static bool BuildUltraSprites(FZeroLayers *layers, const Ppu *ppu, int line) {
+    memset(layers->ultra_sprites, 0, sizeof(layers->ultra_sprites));
+    if (!((ppu->screenEnabled[0] | ppu->screenEnabled[1]) & 0x10)) return false;
+    for (int side = 0; side < 2; ++side) {
+        int offset = FZERO_ULTRA_MARGIN - FZERO_WIDE_MARGIN;
+        int origin = side ? offset : -offset;
+        Ppu *copy = &layers->sprite_scratch;
+        memcpy(copy, ppu, sizeof(*copy));
+        PpuClearOverlayBindings(copy);
+        PpuSetWidescreenLineEnhancer(copy, NULL, NULL);
+        PpuSetExtraSpace(copy, FZERO_WIDE_MARGIN);
+        copy->renderBuffer = (uint8_t *)layers->ultra_capture;
+        copy->renderPitch = sizeof(layers->ultra_capture[0]);
+        if (!layers->native_oam && layers->vehicles.ready) {
+            FZeroVehiclesApplyOffset(&layers->vehicles, copy, origin);
+        } else {
+            if (!layers->native_oam) ExtendVehicleSprites(copy);
+            uint8_t left[16] = {0}, right[16] = {0};
+            for (unsigned slot = 0; slot < 128; ++slot) {
+                unsigned shift = (slot & 3) * 2;
+                unsigned high = (copy->highOam[slot / 4] >> shift) & 3;
+                unsigned position = copy->oam[slot * 2];
+                int x = (position & 255) | ((high & 1) << 8);
+                if (x >= (layers->native_oam ? 256 : 327)) x -= 512;
+                bool hidden = (!layers->native_oam &&
+                    !(copy->wsOamLeftHint[slot / 8] & (1u << (slot & 7)))) || x == -256 ||
+                    (layers->menu_layout && (high & 1));
+                x -= origin;
+                if (hidden || x + 64 <= -FZERO_WIDE_MARGIN || x >= 327) {
+                    copy->oam[slot * 2] = ((line + 64) & 255) << 8;
+                    continue;
+                }
+                copy->oam[slot * 2] = (position & 0xff00) | ((unsigned)x & 255);
+                copy->highOam[slot / 4] = (copy->highOam[slot / 4] & ~(3u << shift)) |
+                    (((high & 2) | (((unsigned)x & 511) >> 8)) << shift);
+                left[slot / 8] |= 1u << (slot & 7);
+                if (x >= 256) right[slot / 8] |= 1u << (slot & 7);
+            }
+            PpuWsSetOamLeftHints(copy, left);
+            PpuWsSetOamRightHints(copy, right);
+        }
+        bool on_line = false;
+        for (unsigned slot = 0; slot < 128; ++slot)
+            if ((copy->wsOamLeftHint[slot / 8] & (1u << (slot & 7))) &&
+                SpriteOnLine(copy, line - 1, slot)) on_line = true;
+        if (!on_line) continue;
+        /* OBJ evaluation is independent of screen enables. Skip backgrounds
+         * and colour math in this pass; composition uses the original state. */
+        copy->screenEnabled[0] = copy->screenEnabled[1] = 0;
+        copy->cgadsub = 0;
+        copy->renderFlags |= kPpuRenderFlags_NoSpriteLimits;
+        ppu_runLine(copy, line);
+        int first = side ? 256 : -FZERO_ULTRA_MARGIN;
+        int end = side ? 256 + FZERO_ULTRA_MARGIN : 0;
+        for (int x = first; x < end; ++x)
+            layers->ultra_sprites[x + FZERO_ULTRA_MARGIN] =
+                copy->objBuffer.data[x - origin + kPpuExtraLeftRight];
+    }
+    for (int x = 0; x < FZERO_ULTRA_WIDTH; ++x)
+        if (layers->ultra_sprites[x] & 255) return true;
+    return false;
+}
+
+/* Hardware windows pinned to 0 or 255 extend to the corresponding side.
+ * This predicate is needed only outside the native viewport. */
+static bool SideObjWindow(const Ppu *ppu, bool right) {
+    unsigned flags = (ppu->windowsel >> 16) & 15;
+    bool w1 = ppu->window1left <= ppu->window1right &&
+        (right ? ppu->window1right == 255 : ppu->window1left == 0);
+    bool w2 = ppu->window2left <= ppu->window2right &&
+        (right ? ppu->window2right == 255 : ppu->window2left == 0);
+    w1 = (flags & 2) && (w1 != ((flags & 1) != 0));
+    w2 = (flags & 8) && (w2 != ((flags & 4) != 0));
+    if ((flags & 10) != 10) return w1 || w2;
+    switch ((ppu->wbgobjlog >> 8) & 3) {
+        case 0: return w1 || w2;
+        case 1: return w1 && w2;
+        case 2: return w1 != w2;
+        default: return w1 == w2;
+    }
+}
+
+/* The generic enhancer reserves BG1's margins for its host. Recover the
+ * complete background priority buffers with the enhancer disabled, then add
+ * the signed OBJ pixels before the PPU applies windows, brightness and colour
+ * math. Ground alias passes each receive their own matching background. */
+static void UltraComposite(Ppu *copy, unsigned line, bool sub, void *context) {
+    FZeroLayers *layers = context;
+    Ppu *background = &layers->background_scratch;
+    if (!sub) {
+        memcpy(background, copy, sizeof(*copy));
+        PpuSetWidescreenLineEnhancer(background, NULL, NULL);
+        ppu_runLine(background, line);
+    }
+    for (int side = 0; side < 2; ++side) {
+        bool obj = (copy->screenEnabled[sub] & g_snes_ppu_dbg_layer_mask & 0x10) &&
+            (!(copy->screenWindowed[sub] & 0x10) || !SideObjWindow(copy, side != 0));
+        int first = side ? 256 : -FZERO_ULTRA_MARGIN;
+        int end = side ? 256 + FZERO_ULTRA_MARGIN : 0;
+        for (int x = first; x < end; ++x) {
+            int index = x + kPpuExtraLeftRight;
+            PpuZbufType bg = background->bgBuffers[sub].data[index];
+            PpuZbufType sprite = layers->ultra_sprites[x + FZERO_ULTRA_MARGIN];
+            copy->bgBuffers[sub].data[index] = obj && (sprite & 255) && sprite > bg ? sprite : bg;
+        }
+    }
+}
+
 /* Intro and result layouts use sprites and BG3 for lettering and counters.
  * Use the visible source so hidden text does not mask the scenery above it. */
 static bool TextOverlayPixel(const Ppu *ppu, int x, bool native_oam) {
@@ -134,49 +271,72 @@ static bool TextOverlayPixel(const Ppu *ppu, int x, bool native_oam) {
  * and live sprite evaluation retain their original width and hardware limits.
  * Capture also runs with widescreen off so a paused menu can switch immediately. */
 static void BuildWideLine(FZeroLayers *layers, const Ppu *ppu, int line,
-                          bool supported, bool hud_layout) {
+                          bool supported, bool hud_layout, WideView view) {
     int y = line - 1;
-    uint32_t *world = layers->wide_world[y], *hud = layers->wide_hud[y];
-    memset(world, 0, sizeof(layers->wide_world[y]));
-    for (int x = 0; x < FZERO_WIDE_WIDTH; ++x) hud[x] = 0xff000000;
+    uint32_t *world = view.world + y * view.width, *hud = view.hud + y * view.width;
+    memset(world, 0, view.width * sizeof(*world));
+    for (int x = 0; x < view.width; ++x) hud[x] = 0xff000000;
     if (supported) {
-        Ppu *copy = &layers->scratch;
-        memcpy(copy, ppu, sizeof(*copy));
-        copy->renderBuffer = (uint8_t *)layers->wide_capture;
-        copy->renderPitch = sizeof(layers->wide_capture[0]);
-        PpuClearOverlayBindings(copy);
-        PpuSetExtraSpace(copy, FZERO_WIDE_MARGIN);
-        PpuSetWidescreenLayerClamp(copy, y < 48 ? 4 : 0);
-        if (PPU_mode(ppu) == 1) {
-            ExtendPanorama(copy, ppu, line, 0, layers->intro_panorama);
-            ExtendPanorama(copy, ppu, line, 1, layers->intro_panorama);
-        }
-        if (layers->native_oam) {
-            /* Full-screen effects use the native list, not racing vehicle
-             * groups. Preserve its signed coordinates and current artwork. */
-            uint8_t hints[16] = {0};
-            PpuWsSetOamLeftHints(copy, hints);
-            PpuWsSetOamRightHints(copy, hints);
-            copy->renderFlags |= kPpuRenderFlags_NoSpriteLimits;
-        } else if (layers->vehicles.ready) FZeroVehiclesApply(&layers->vehicles, copy);
-        else ExtendVehicleSprites(copy);
-        if (!FZeroGroundRenderLine(&layers->ground, copy, line)) ppu_runLine(copy, line);
-        for (int x = 0; x < FZERO_WIDE_WIDTH; ++x) {
-            if (x >= FZERO_WIDE_MARGIN && x < FZERO_WIDE_MARGIN + FZERO_NATIVE_WIDTH) continue;
-            /* A full-centre fallback must also protect the sides. Otherwise
-             * Enhanced grades only the margins and exposes the old viewport. */
-            if (hud_layout || ((layers->intro_panorama || layers->results_layout) &&
-                !TextOverlayPixel(copy, x - FZERO_WIDE_MARGIN, layers->native_oam))) {
-                world[x] = layers->wide_capture[y][x];
-                hud[x] = 0;
-            } else {
-                hud[x] = layers->wide_capture[y][x] | 0xff000000u;
+        bool ultra_sprites = view.margin == FZERO_ULTRA_MARGIN && BuildUltraSprites(layers, ppu, line);
+        int passes = view.margin == FZERO_ULTRA_MARGIN && PPU_mode(ppu) == 1 ? 2 : 1;
+        uint32_t left[FZERO_ULTRA_MARGIN];
+        for (int pass = 0; pass < passes; ++pass) {
+            Ppu *copy = &layers->scratch;
+            memcpy(copy, ppu, sizeof(*copy));
+            copy->renderBuffer = (uint8_t *)view.capture;
+            copy->renderPitch = view.width * sizeof(uint32_t);
+            PpuClearOverlayBindings(copy);
+            PpuSetExtraSpace(copy, view.margin);
+            PpuSetWidescreenLayerClamp(copy, y < 48 ? 4 : 0);
+            if (PPU_mode(ppu) == 1) {
+                ExtendPanorama(copy, ppu, line, 0, layers->intro_panorama,
+                    -view.margin, passes == 2 ? -1 : 255 + view.margin);
+                ExtendPanorama(copy, ppu, line, 1, layers->intro_panorama,
+                    -view.margin, passes == 2 ? -1 : 255 + view.margin);
+                if (pass) {
+                    ExtendPanorama(copy, ppu, line, 0, layers->intro_panorama, 256, 255 + view.margin);
+                    ExtendPanorama(copy, ppu, line, 1, layers->intro_panorama, 256, 255 + view.margin);
+                }
+            }
+            if (view.margin == FZERO_ULTRA_MARGIN) {
+                HideAllSprites(copy, line);
+                if (ultra_sprites) PpuSetWidescreenLineEnhancer(copy, UltraComposite, layers);
+            } else if (layers->native_oam) {
+                /* Full-screen effects use the native list, not racing vehicle
+                 * groups. Preserve its signed coordinates and current artwork. */
+                uint8_t hints[16] = {0};
+                PpuWsSetOamLeftHints(copy, hints);
+                PpuWsSetOamRightHints(copy, hints);
+                copy->renderFlags |= kPpuRenderFlags_NoSpriteLimits;
+                /* Title and results hide unused menu sprites with X-high.
+                 * Those are not signed positions in the expanded scene. */
+                if (layers->menu_layout) for (unsigned slot = 0; slot < 128; ++slot)
+                    if (copy->highOam[slot / 4] & (1u << ((slot & 3) * 2)))
+                        copy->oam[slot * 2] = ((line + 64) & 255) << 8;
+            } else if (layers->vehicles.ready) FZeroVehiclesApply(&layers->vehicles, copy);
+            else ExtendVehicleSprites(copy);
+            if (!FZeroGroundRenderLine(&layers->ground, copy, line)) ppu_runLine(copy, line);
+            if (passes == 2 && pass == 0)
+                memcpy(left, view.capture + y * view.width, sizeof(left));
+            for (int x = 0; x < view.width; ++x) {
+                if (passes == 2 && (pass == 0 ? x >= view.margin : x < view.margin + 256)) continue;
+                if (x >= view.margin && x < view.margin + FZERO_NATIVE_WIDTH) continue;
+                /* A full-centre fallback must also protect the sides. Otherwise
+                 * Enhanced grades only the margins and exposes the old viewport. */
+                if (hud_layout || ((layers->intro_panorama || layers->results_layout) &&
+                    !TextOverlayPixel(copy, x - view.margin, layers->native_oam))) {
+                    world[x] = view.capture[y * view.width + x];
+                    hud[x] = 0;
+                } else {
+                    hud[x] = view.capture[y * view.width + x] | 0xff000000u;
+                }
             }
         }
-        ++layers->wide_lines;
+        if (passes == 2) memcpy(view.capture + y * view.width, left, sizeof(left));
+        if (view.margin == FZERO_WIDE_MARGIN) ++layers->wide_lines;
     }
-    memcpy(world + FZERO_WIDE_MARGIN, layers->world[y], sizeof(layers->world[y]));
-    memcpy(hud + FZERO_WIDE_MARGIN, layers->hud[y], sizeof(layers->hud[y]));
+    memcpy(world + view.margin, layers->world[y], sizeof(layers->world[y]));
+    memcpy(hud + view.margin, layers->hud[y], sizeof(layers->hud[y]));
 }
 
 static void HideHudSlot(Ppu *copy, unsigned slot) {
@@ -187,7 +347,8 @@ static void HideHudSlot(Ppu *copy, unsigned slot) {
 
 /* Move only the racing instrumentation. Messages and repair sprites occupy
  * separate slots and retain their original positions and colour protection. */
-static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool protect_scene) {
+static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool protect_scene,
+                        const WideView *views, unsigned view_count) {
     int y=line-1;
     bool native_text=layers->native_oam &&
         (layers->intro_panorama || layers->results_layout);
@@ -266,22 +427,27 @@ static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool prot
     }
     ppu_runLine(copy,line);
     const uint32_t *original=(const uint32_t*)(ppu->renderBuffer+y*ppu->renderPitch);
-    uint32_t *world=layers->wide_world[y], *hud=layers->wide_hud[y];
-    for(int x=0;x<256;++x) {
-        bool old_meter=power_band && x>=174 && x<242 && !centred[x];
-        if(old_meter && power_math && x>=ppu->window1left && x<=ppu->window1right)
-            move[x]=true;
-        if(!move[x] && !old_meter) continue;
-        bool protected_pixel=protect_scene ||
-            (native_text && TextOverlayPixel(copy,x,true));
-        world[x+FZERO_WIDE_MARGIN]=protected_pixel?0:layers->capture[y][x];
-        hud[x+FZERO_WIDE_MARGIN]=protected_pixel?(layers->capture[y][x]|0xff000000u):0;
-    }
-    /* Clear all sources before drawing destinations: the two regions can
-     * overlap when a wide HUD group extends back into the original centre. */
-    for(int x=0;x<256;++x) if(move[x]) {
-        int destination=x+(x<128?0:2*FZERO_WIDE_MARGIN);
-        hud[destination]=original[x]|0xff000000u;
+    /* Coverage and the restored native scene are identical for both aspect
+     * ratios. Capture them once, then apply only placement for each view. */
+    for (unsigned v = 0; v < view_count; ++v) {
+        WideView view = views[v];
+        uint32_t *world=view.world + y * view.width, *hud=view.hud + y * view.width;
+        for(int x=0;x<256;++x) {
+            bool old_meter=power_band && x>=174 && x<242 && !centred[x];
+            if(old_meter && power_math && x>=ppu->window1left && x<=ppu->window1right)
+                move[x]=true;
+            if(!move[x] && !old_meter) continue;
+            bool protected_pixel=protect_scene ||
+                (native_text && TextOverlayPixel(copy,x,true));
+            world[x+view.margin]=protected_pixel?0:layers->capture[y][x];
+            hud[x+view.margin]=protected_pixel?(layers->capture[y][x]|0xff000000u):0;
+        }
+        /* Clear all sources before drawing destinations: the two regions can
+         * overlap when a wide HUD group extends back into the original centre. */
+        for(int x=0;x<256;++x) if(move[x]) {
+            int destination=x+(x<128?0:2*view.margin);
+            hud[destination]=original[x]|0xff000000u;
+        }
     }
 }
 
@@ -329,9 +495,16 @@ void FZeroLayersProcessLine(FZeroLayers *layers, const Ppu *ppu, int line,
         layers->world[y][x] = mask[x] ? 0 : original[x];
         pixels += mask[x];
     }
-    BuildWideLine(layers, ppu, line, supported, hud_layout);
+    WideView views[] = {
+        {(uint32_t *)layers->wide_world, (uint32_t *)layers->wide_hud,
+         (uint32_t *)layers->wide_capture, FZERO_WIDE_WIDTH, FZERO_WIDE_MARGIN},
+        {(uint32_t *)layers->ultra_world, (uint32_t *)layers->ultra_hud,
+         (uint32_t *)layers->ultra_capture, FZERO_ULTRA_WIDTH, FZERO_ULTRA_MARGIN}
+    };
+    for (unsigned v = 0; v < 2; ++v)
+        BuildWideLine(layers, ppu, line, supported, hud_layout, views[v]);
     if(supported && layers->move_hud)
-        MoveWideHud(layers,ppu,line,!hud_layout && !text_layout);
+        MoveWideHud(layers,ppu,line,!hud_layout && !text_layout,views,2);
     if (supported && (hud_layout || text_layout) && pixels) ++layers->extracted_lines;
     layers->hud_pixels += pixels;
 }
