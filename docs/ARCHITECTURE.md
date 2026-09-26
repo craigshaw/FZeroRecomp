@@ -69,6 +69,8 @@ surfaces. The wider views add 71 and 270 columns per side. All three views
 update each frame, so an aspect or style switch while paused needs no new
 game frame. Both wider views use the same scene policy, HUD capture and
 relocation, filters, transition guards, ground correction, and vehicle data.
+HUD relocation captures coverage and restores the native scene once per line,
+then applies that result to both wider views. Only placement depends on width.
 
 Side rendering operates on copied PPU state. The native centre is inserted
 before HUD relocation. Live PPU state, guest memory, physics, object lifetime,
@@ -253,7 +255,30 @@ Use isolated executable-relative settings and saves for comparisons.
 | `SNESRECOMP_VALIDATE_PRESENTATION=1` | GPU readback comparison; requires the shader path and exits on a mismatch |
 | `SNESRECOMP_HUD_DIAGNOSTIC=1` | Greyscale scene with coloured protected pixels; requires the shader path |
 | `SNESRECOMP_PRESENTATION=legacy` | Compare with the older single-texture native presentation |
+| `SNESRECOMP_FRAME_TIMING=1` | Log output size, display refresh, VSync, presentation and simulation rates, and average host stage times every 120 presentations |
+| `SNESRECOMP_VSYNC=0` | Disable presentation VSync for diagnosis; retain the normal NTSC simulation clock and host limiter |
 
 Readback checks all composite RGB in Original and protected HUD RGB in effect
 styles. It checks composition, not whether every HUD item was correctly classified.
 Use synthetic tests and interactive inspection for that distinction.
+
+Frame timing reports host-call wall time, not GPU execution time. GPU queue
+waits can appear under upload, draw, or present. The `raster` field includes
+the scanline walk and scene/HUD extraction. Stage averages are milliseconds
+per host presentation, including any catch-up simulation steps. Compare runs
+with the menu closed and without screenshot or readback validation enabled.
+
+For a Windows fullscreen slowdown, run from the executable's folder in
+PowerShell, then compare the same attract sequence windowed and fullscreen:
+
+```powershell
+$env:SNESRECOMP_FRAME_TIMING = "1"
+.\fzero_recomp.exe 2> timing-vsync.log
+$env:SNESRECOMP_VSYNC = "0"
+.\fzero_recomp.exe 2> timing-no-vsync.log
+Remove-Item Env:SNESRECOMP_VSYNC, Env:SNESRECOMP_FRAME_TIMING
+```
+
+These overrides last only in that shell and do not change saved settings.
+The no-VSync comparison can tear. It distinguishes presentation waits from
+scene rendering cost without changing game speed or the selected filter.

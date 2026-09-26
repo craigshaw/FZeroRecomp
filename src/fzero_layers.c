@@ -329,7 +329,8 @@ static void HideHudSlot(Ppu *copy, unsigned slot) {
 
 /* Move only the racing instrumentation. Messages and repair sprites occupy
  * separate slots and retain their original positions and colour protection. */
-static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool protect_scene, WideView view) {
+static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool protect_scene,
+                        const WideView *views, unsigned view_count) {
     int y=line-1;
     bool native_text=layers->native_oam &&
         (layers->intro_panorama || layers->results_layout);
@@ -408,22 +409,27 @@ static void MoveWideHud(FZeroLayers *layers, const Ppu *ppu, int line, bool prot
     }
     ppu_runLine(copy,line);
     const uint32_t *original=(const uint32_t*)(ppu->renderBuffer+y*ppu->renderPitch);
-    uint32_t *world=view.world + y * view.width, *hud=view.hud + y * view.width;
-    for(int x=0;x<256;++x) {
-        bool old_meter=power_band && x>=174 && x<242 && !centred[x];
-        if(old_meter && power_math && x>=ppu->window1left && x<=ppu->window1right)
-            move[x]=true;
-        if(!move[x] && !old_meter) continue;
-        bool protected_pixel=protect_scene ||
-            (native_text && TextOverlayPixel(copy,x,true));
-        world[x+view.margin]=protected_pixel?0:layers->capture[y][x];
-        hud[x+view.margin]=protected_pixel?(layers->capture[y][x]|0xff000000u):0;
-    }
-    /* Clear all sources before drawing destinations: the two regions can
-     * overlap when a wide HUD group extends back into the original centre. */
-    for(int x=0;x<256;++x) if(move[x]) {
-        int destination=x+(x<128?0:2*view.margin);
-        hud[destination]=original[x]|0xff000000u;
+    /* Coverage and the restored native scene are identical for both aspect
+     * ratios. Capture them once, then apply only placement for each view. */
+    for (unsigned v = 0; v < view_count; ++v) {
+        WideView view = views[v];
+        uint32_t *world=view.world + y * view.width, *hud=view.hud + y * view.width;
+        for(int x=0;x<256;++x) {
+            bool old_meter=power_band && x>=174 && x<242 && !centred[x];
+            if(old_meter && power_math && x>=ppu->window1left && x<=ppu->window1right)
+                move[x]=true;
+            if(!move[x] && !old_meter) continue;
+            bool protected_pixel=protect_scene ||
+                (native_text && TextOverlayPixel(copy,x,true));
+            world[x+view.margin]=protected_pixel?0:layers->capture[y][x];
+            hud[x+view.margin]=protected_pixel?(layers->capture[y][x]|0xff000000u):0;
+        }
+        /* Clear all sources before drawing destinations: the two regions can
+         * overlap when a wide HUD group extends back into the original centre. */
+        for(int x=0;x<256;++x) if(move[x]) {
+            int destination=x+(x<128?0:2*view.margin);
+            hud[destination]=original[x]|0xff000000u;
+        }
     }
 }
 
@@ -477,11 +483,10 @@ void FZeroLayersProcessLine(FZeroLayers *layers, const Ppu *ppu, int line,
         {(uint32_t *)layers->ultra_world, (uint32_t *)layers->ultra_hud,
          (uint32_t *)layers->ultra_capture, FZERO_ULTRA_WIDTH, FZERO_ULTRA_MARGIN}
     };
-    for (unsigned v = 0; v < 2; ++v) {
+    for (unsigned v = 0; v < 2; ++v)
         BuildWideLine(layers, ppu, line, supported, hud_layout, views[v]);
-        if(supported && layers->move_hud)
-            MoveWideHud(layers,ppu,line,!hud_layout && !text_layout,views[v]);
-    }
+    if(supported && layers->move_hud)
+        MoveWideHud(layers,ppu,line,!hud_layout && !text_layout,views,2);
     if (supported && (hud_layout || text_layout) && pixels) ++layers->extracted_lines;
     layers->hud_pixels += pixels;
 }
