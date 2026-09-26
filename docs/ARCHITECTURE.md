@@ -30,11 +30,14 @@ calls the configured NMI and IRQ entries and preserves their hardware stack
 model. Each scanline is drawn and captured before the next HDMA/IRQ update;
 a handler's register changes affect the following row.
 
-During this scanline walk, the host calls
+During CPU execution (reset, NMI and mainline) and the scanline walk, the host calls
 `snes_set_hdma_beam_enabled(g_snes, false)` so the dependency's beam simulator
 does not run a second HDMA engine. It saves the prior per-instance setting and
-restores it after the walk, including when beam HDMA was already disabled.
-Preserve this ordering when changing the scheduler.
+restores it after each operation, including when beam HDMA was already disabled.
+Suppressing beam HDMA only during drawing is insufficient: CPU execution can
+otherwise replay an old racing table over a menu's closed colour window,
+leaving coloured bands on the Give Up page. The explicit scanline walk still
+performs all authentic HDMA work. Preserve this ownership when changing the scheduler.
 
 Course, vehicle, and scene-policy snapshots are taken before NMI with the
 matching display upload. Reading them after the next guest update can combine
@@ -91,6 +94,10 @@ and native sprite limits are unchanged.
   upload timing, shadow cadence, and conservative exceptional-state guards.
   Start side reconstruction during READY as soon as the racing OAM upload
   is installed; opponents can already be outside the native horizontal view.
+  During grid entry, hold reconstructed body anchors at the native lower
+  limit until the slide reaches them. Entry shadows follow the animated body
+  anchor with the guest's 252 cap; READY restores normal ground shadows.
+  Culled cars need a reconstructed anchor because their native one is stale.
   Shadow table X words contain only nine coordinate bits. Sign-extend those
   bits before adding the signed car position, and test the full table word
   for the terminator so a tagged zero-offset piece is retained.
@@ -98,6 +105,9 @@ and native sprite limits are unchanged.
   traffic. Its bomb flag alone does not indicate an explosion. A collision
   latch or the explosion flag prevents reconstruction of an intact body;
   native explosion pieces remain under guest control.
+  The short race-finish camera also retains racing vehicle reconstruction
+  through deceleration, the orbit and the wait before results. Stop using
+  those buffers when the standalone results upload takes ownership.
   For 32:9, retain signed positions for cars and each shadow piece. Rasterise
   OBJ in two bounded views with origins at -199 and +199, then insert their
   side priority pixels before the full-width PPU colour composition. This

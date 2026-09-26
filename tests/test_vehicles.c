@@ -150,6 +150,21 @@ static void TestGpEndingVehicles(void) {
     Word(ram + 0x1172, -172); Word(ram + 0x1174, 178);
     FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
     CHECK(frame.car[1].x == -44 && frame.car[2].x == 306);
+    /* The short first-place sequence keeps the same racing buffers through
+     * deceleration, camera orbit and the wait before the results upload. */
+    const unsigned finish_phases[] = {0x20, 0x21, 9};
+    for (unsigned i = 0; i < sizeof(finish_phases)/sizeof(finish_phases[0]); ++i) {
+        ram[0xc3] = finish_phases[i];
+        FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
+        CHECK(frame.ready && frame.car[1].added && frame.car[2].added);
+        CHECK(frame.car[1].x == -44 && frame.car[2].x == 306 && frame.shadow_count == 1);
+        layers.vehicles = frame; layers.results_layout = false;
+        ppu_runLine(&ppu, 93); saved_ppu = ppu;
+        FZeroLayersProcessLine(&layers, &ppu, 93, true, true);
+        CHECK(!memcmp(&saved_ppu, &ppu, sizeof(ppu)));
+        CHECK(layers.wide_world[92][FZERO_WIDE_MARGIN - 44] == 0xff00ff);
+        CHECK(layers.wide_world[92][FZERO_WIDE_MARGIN + 306] == 0xff00ff);
+    }
     /* READY installs racing OAM before the main racing process starts. */
     ram[0xc3] = 0; ram[0x55] = 2;
     FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
@@ -161,7 +176,7 @@ static void TestGpEndingVehicles(void) {
     FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom)); CHECK(!frame.ready);
     ram[0x55] = 3;
     /* The exception must not enable reconstruction on unrelated layouts. */
-    ram[0xc3] = 9;
+    ram[0xc3] = 0x40;
     FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom)); CHECK(!frame.ready);
     ram[0xc3] = 0x11; ram[0x50] = 0;
     FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom)); CHECK(!frame.ready);
@@ -239,6 +254,70 @@ static void TestPackedShadowOffsets(void) {
         for (int screen = -FZERO_WIDE_MARGIN; screen < 256 + FZERO_WIDE_MARGIN; ++screen)
             CHECK(layers.wide_world[98][screen + FZERO_WIDE_MARGIN] ==
                 (screen >= x - 8 && screen < x + 16 ? 0xff00ff : 0x00ff00));
+    }
+    memset(&layers, 0, sizeof(layers));
+}
+
+static void TestGridEntry(void) {
+    const int positions[] = {-40, -4, 252, 300};
+    const int slides[] = {100, 40, 10, 0};
+    for (unsigned at = 0; at < sizeof(positions)/sizeof(positions[0]); ++at)
+    for (unsigned step = 0; step < sizeof(slides)/sizeof(slides[0]); ++step) {
+        Fixture();
+        int x = positions[at], body = 230 + slides[step];
+        if (body > 255) body = 255;
+        int shadow = (body > 252 ? 252 : body) - 8;
+        Data(0x0becc2)[0] = 8;
+        bool native = x >= -32 && x < 288;
+        ram[0x55] = 2; ram[0x56] = 1;
+        ram[0xb02] = native ? 0x88 : 0x80;
+        ram[0xbc3] = (uint8_t)-slides[step];
+        memset(Data(0x09ed00), 230, 658);
+        Word(ram + 0x1172, x - 128);
+        Word(ram + 0xc52, x); ram[0xc62] = 230;
+        Word(ram + 0xc82, native ? body : 240); /* Culled anchor is stale. */
+        ram[0x11d2] = 1;
+        Word(ram + 0x320, ((body - 8) << 8) | (x & 255));
+        Word(ram + 0x322, 0x3000); Word(ram + 0xd82, (x & 511) >> 8);
+        memcpy(saved_ram, ram, sizeof(ram)); memcpy(saved_rom, rom, sizeof(rom));
+        FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
+        CHECK(frame.ready && frame.car[1].visible && frame.car[1].added == !native);
+        CHECK((frame.car[1].oam[0] >> 8) == body - 8);
+        CHECK(frame.shadow_count == 1 && (frame.shadow_oam[0] >> 8) == shadow);
+        CHECK(!memcmp(saved_ram, ram, sizeof(ram)) && !memcmp(saved_rom, rom, sizeof(rom)));
+        memset(&layers, 0, sizeof(layers)); layers.vehicles = frame;
+        ppu_reset(&ppu);
+        PpuBeginDrawing(&ppu, (uint8_t *)original, sizeof(original[0]), kPpuRenderFlags_NewRenderer);
+        ppu.inidisp = 15; ppu.bgmode = 7; ppu.obsel = 2; ppu.screenEnabled[0] = 0x10;
+        ppu.cgram[0] = 0x03e0; ppu.cgram[129] = 0x7c1f;
+        for (unsigned row = 0; row < 8; ++row) ppu.vram[0x4000 + row] = ppu.vram[0x4800 + row] = 0xff;
+        /* Independent native placement supplies the centre reference. */
+        memset(ppu.highOam, 0x55, sizeof(ppu.highOam));
+        ppu.oam[0] = ((body - 8) << 8) | (x & 255); ppu.oam[1] = 0x3000;
+        ppu.oam[2] = (shadow << 8) | ((x - 8) & 255); ppu.oam[3] = 0x3080;
+        ppu.highOam[0] = 0x50 | ((x & 511) >> 8) | (((x - 8) & 511) >> 8) << 2;
+        ppu_runLine(&ppu, 0);
+        for (int y = 0; y < 224; ++y) {
+            ppu_runLine(&ppu, y + 1); saved_ppu = ppu;
+            FZeroLayersProcessLine(&layers, &ppu, y + 1, true, true);
+            CHECK(!memcmp(&saved_ppu, &ppu, sizeof(ppu)));
+            for (int sx = -FZERO_WIDE_MARGIN; sx < 256 + FZERO_WIDE_MARGIN; ++sx) {
+                bool piece = (sx >= x && sx < x + 8 && y >= body - 8 && y < body) ||
+                    (sx >= x - 8 && sx < x && y >= shadow && y < shadow + 8);
+                uint32_t pixel = layers.wide_hud[y][sx + FZERO_WIDE_MARGIN];
+                if (!pixel) pixel = layers.wide_world[y][sx + FZERO_WIDE_MARGIN];
+                CHECK((pixel & 0xffffff) == (piece ? 0xff00ff : 0x00ff00));
+            }
+        }
+        /* READY restores ground shadows, and racing/jumps keep their normal
+         * vertical arithmetic. Neither phase uses the grid-entry rule. */
+        ram[0x56] = 2;
+        FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
+        CHECK(frame.shadow_count == 1 && (frame.shadow_oam[0] >> 8) == 222);
+        if (!native) CHECK((frame.car[1].oam[0] >> 8) == ((230 + slides[step] - 8) & 255));
+        ram[0x55] = 3; ram[0x56] = 1;
+        FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
+        CHECK(frame.shadow_count == 1 && (frame.shadow_oam[0] >> 8) == 222);
     }
     memset(&layers, 0, sizeof(layers));
 }
@@ -524,6 +603,7 @@ void TestVehicles(void) {
     TestGpEndingVehicles();
     TestBombTraffic();
     TestPackedShadowOffsets();
+    TestGridEntry();
     TestUltraComposition();
     TestPlayerJumpHiddenPieces();
 #ifdef FZERO_TEST_ULTRA

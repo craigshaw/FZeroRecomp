@@ -53,6 +53,13 @@ void FZeroRunOneFrameOfGame(void) {
   static bool g_did_reset = false;
   static bool g_first_frame_done = false;
 
+  /* This host owns HDMA in FZeroDrawPpuFrame. The dependency also advances
+   * its beam while CPU code runs, including reset and NMI. Suppress that
+   * second HDMA engine here too: otherwise it can overwrite a menu's closed
+   * colour window with a stale racing table between authentic raster walks. */
+  const bool beam_hdma_was_enabled = !g_snes->hdmaBeamOff;
+  snes_set_hdma_beam_enabled(g_snes, false);
+
   if (!g_did_reset) {
     cpu_state_init(&g_cpu, g_ram);
     /* Run boot through the scheduler bridge: reset falls into the
@@ -111,6 +118,7 @@ void FZeroRunOneFrameOfGame(void) {
                                 kFZeroNmiFlagAddr);
   }
   g_first_frame_done = true;
+  snes_set_hdma_beam_enabled(g_snes, beam_hdma_was_enabled);
 }
 
 void FZeroDrawPpuFrame(void) {

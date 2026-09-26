@@ -44,6 +44,22 @@ static unsigned SizeForRow(const uint8_t *rom, int y) {
     return size;
 }
 
+static bool GridEntry(const uint8_t *ram) {
+    return ram[0x55] == 2 && ram[0x56] == 1;
+}
+
+static int BodyY(const FZeroVehicle *car, unsigned id,
+                 const uint8_t *ram, const uint8_t *rom) {
+    int height = (int8_t)ram[0xbc1 + id * 2];
+    int lift = height < 0 ? height :
+        Rom(rom, 0x08ede0)[255 - car->ground_y] * ((height * 2) & 255) / 256;
+    int y = car->ground_y - lift;
+    /* Grid entry holds native cars at 255 until the slide reaches them.
+     * Horizontally culled cars lack that per-car height initialisation;
+     * retain the same lower bound instead of wrapping them into the sky. */
+    return GridEntry(ram) && y > 255 ? 255 : y;
+}
+
 static bool Reconstruct(FZeroVehicle *car, unsigned id, const uint8_t *ram,
                         const uint8_t *rom) {
     unsigned offset = id * 2;
@@ -66,10 +82,7 @@ static bool Reconstruct(FZeroVehicle *car, unsigned id, const uint8_t *ram,
     const uint8_t *parts = Rom(rom, descriptor);
     unsigned sizes = Word(parts);
     unsigned attributes = Word(ram + 0xc40 + offset);
-    int height = (int8_t)ram[0xbc1 + offset];
-    int lift = height < 0 ? height :
-        Rom(rom, 0x08ede0)[255 - car->ground_y] * ((height * 2) & 255) / 256;
-    int y = car->ground_y - lift;
+    int y = BodyY(car, id, ram, rom);
     HidePieces(car->oam, &car->high);
     car->count = 0;
     for (unsigned p = 0; p < 8; ++p) {
@@ -162,7 +175,15 @@ static void PrepareShadows(FZeroVehicles *frame, const uint8_t *ram, const uint8
         const FZeroVehicle *car = &frame->car[id];
         if (!car->visible || car->size >= 8) continue;
         const uint8_t *parts = Rom(rom, 0x0becd0) + car->size * 16;
-        int y = car->ground_y - Rom(rom, 0x0becc2)[car->size];
+        int anchor = car->ground_y;
+        /* The grid-entry shadow routine temporarily substitutes the body
+         * anchor, capped at 252, for ground Y. Culled cars have no current
+         * native body anchor, so use the reconstructed one for those cars. */
+        if (GridEntry(ram) && id <= 3) {
+            anchor = car->added ? BodyY(car, id, ram, rom) : Word(ram + 0xc80 + id * 2);
+            if (anchor > 252) anchor = 252;
+        }
+        int y = anchor - Rom(rom, 0x0becc2)[car->size];
         for (unsigned p = 0; p < 4; ++p) {
             unsigned packed_x = Word(parts + p * 4);
             if (!packed_x) break;
@@ -188,11 +209,12 @@ void FZeroVehiclesPrepare(FZeroVehicles *frame, const uint8_t *ram,
     frame->ready = false;
     memset(frame->car, 0, sizeof(frame->car));
     /* READY already has racing vehicle buffers once the native intro upload
-     * ends. The GP ending camera also retains them while showing results.
-     * Keep reconstructing cars beyond the native horizontal edges in both. */
+     * ends. Finish cameras retain them through deceleration (20), the orbit
+     * (21), and the results wait (9), as does the GP ending (11). */
+    unsigned scene = ram[0xc3];
     if (!rom || rom_size != 0x80000 || !FZeroSceneWide(ram) ||
         ram[0x54] != 2 || ram[0x55] < 2 || !ram[0x50] ||
-        (ram[0xc3] && ram[0xc3] != 0x11)) {
+        (scene && scene != 9 && scene != 0x11 && scene != 0x20 && scene != 0x21)) {
         memset(frame->jump_anchor_valid, 0, sizeof(frame->jump_anchor_valid));
         return;
     }

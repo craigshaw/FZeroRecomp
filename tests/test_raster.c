@@ -91,12 +91,17 @@ void bank_00_8601(CpuState *c) {
  * No cartridge code executes. */
 static unsigned prepared;
 static bool expected_wide, expected_hud;
-void cpu_state_init(CpuState *c, uint8 *ram) { c->S = 0x1ff; }
+void cpu_state_init(CpuState *c, uint8 *ram) {
+    CHECK(snes.hdmaBeamOff);
+    c->S = 0x1ff;
+}
 int interp_bridge_run_scheduler(CpuState *c, uint32 entry, uint32 yield, uint16 flag) {
+    CHECK(snes.hdmaBeamOff);
     memset(g_ram, 0, sizeof(g_ram));
     return 0;
 }
 void bank_00_80D9(CpuState *c) {
+    CHECK(snes.hdmaBeamOff);
     CHECK(prepared == 2);
     CHECK(layers.wide_scene == expected_wide && layers.hud_layout == expected_hud);
     c->S += 4;
@@ -110,7 +115,9 @@ void FZeroGroundPrepare(FZeroGround *f, const uint8_t *ram) {
 
 static void CheckSceneTransitions(void) {
     FZeroSetLayers(&layers);
+    snes.hdmaBeamOff = false;
     FZeroRunOneFrameOfGame(); /* Synthetic reset, before the first upload. */
+    CHECK(!snes.hdmaBeamOff);
     const struct { unsigned mode, process, exception, obj; bool wide, hud; } cases[] = {
         {2,3,0,1,true,true}, {2,5,0,1,true,true}, {2,4,0,1,true,true},
         {2,3,0x40,1,true,true}, {2,3,0x40,0,true,true},
@@ -131,7 +138,9 @@ static void CheckSceneTransitions(void) {
         g_ram[0xc3]=cases[i].exception; g_ram[0x50]=cases[i].obj;
         g_ram[0x5c]=1; g_ram[0x5f]=4;
         prepared=0; expected_wide=cases[i].wide; expected_hud=cases[i].hud;
+        snes.hdmaBeamOff = (i & 1) != 0;
         FZeroRunOneFrameOfGame();
+        CHECK(snes.hdmaBeamOff == ((i & 1) != 0));
         CHECK(prepared==2 && !g_ram[0x54]);
         CHECK(layers.wide_scene==expected_wide && layers.hud_layout==expected_hud);
         CHECK(layers.native_oam==!cases[i].obj);
