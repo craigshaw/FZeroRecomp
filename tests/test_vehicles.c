@@ -3,6 +3,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include "fzero_layers.h"
+#ifdef FZERO_TEST_ULTRA
+#define FZERO_WIDE_WIDTH FZERO_ULTRA_WIDTH
+#define FZERO_WIDE_MARGIN FZERO_ULTRA_MARGIN
+#define wide_world ultra_world
+#define wide_hud ultra_hud
+#define wide_capture ultra_capture
+#endif
+
 
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "vehicle line %d: %s\n", __LINE__, #c); exit(1); } } while (0)
 static uint8_t ram[0x20000], rom[0x80000], saved_ram[0x20000], saved_rom[0x80000];
@@ -97,6 +105,113 @@ static void TestGpEndingVehicles(void) {
     ram[0x50] = 1; ram[0x54] = 3;
     FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom)); CHECK(!frame.ready);
     memset(&layers, 0, sizeof(layers));
+}
+
+#ifdef FZERO_TEST_ULTRA
+static void TestUltraEdges(void) {
+    /* Sweep a body and its shadow through both new edges and all nine-bit
+     * wrap boundaries. The expected pixels use signed screen coordinates. */
+    for (int x = -334; x < 590; ++x) {
+        Fixture(); ram[0xb02] = 0x80;
+        Word(ram + 0x1172, x - 128);
+        FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
+        memset(&layers, 0, sizeof(layers)); layers.vehicles = frame;
+        ppu_reset(&ppu);
+        PpuBeginDrawing(&ppu, (uint8_t *)original, sizeof(original[0]), kPpuRenderFlags_NewRenderer);
+        ppu.inidisp = 15; ppu.bgmode = 7; ppu.obsel = 2;
+        ppu.screenEnabled[0] = 0x10;
+        ppu.cgram[0] = 0x03e0; ppu.cgram[129] = 0x7c1f;
+        for (unsigned row = 0; row < 8; ++row) ppu.vram[0x4800 + row] = 0xff;
+        const int lines[] = {93, 99};
+        for (unsigned part = 0; part < 2; ++part) {
+            int line = lines[part], start = x - (part ? 8 : 0);
+            ppu_runLine(&ppu, line); saved_ppu = ppu;
+            FZeroLayersProcessLine(&layers, &ppu, line, true, true);
+            CHECK(!memcmp(&saved_ppu, &ppu, sizeof(ppu)));
+            for (int screen = -270; screen < 526; ++screen) {
+                if (screen >= 0 && screen < 256) continue;
+                bool visible = frame.car[1].added && screen >= start && screen < start + 8;
+                /* The body spans rows 92..99, and overlaps the shadow row. */
+                if (part && frame.car[1].added && screen >= x && screen < x + 8) visible = true;
+                CHECK(layers.wide_world[line-1][screen+270] == (visible ? 0xff00ff : 0x00ff00));
+                CHECK(!layers.wide_hud[line-1][screen+270]);
+            }
+        }
+    }
+}
+#endif
+
+static void TestPlayerJumpHiddenPieces(void) {
+    Fixture(); ram[0xb00] = 0x88; ram[0xb02] = 0x80;
+    Word(ram + 0xc50, 128); ram[0xc60] = 188;
+    Word(ram + 0x1172, 322); /* A real opponent at X=450 must remain visible. */
+    for (unsigned p = 0; p < 8; ++p) {
+        Word(ram + 0x300 + p * 4, ((100 + p * 8) << 8) | (96 + (p & 1) * 16));
+        Word(ram + 0x302 + p * 4, 0x3800);
+    }
+    ppu_reset(&ppu);
+    PpuBeginDrawing(&ppu, (uint8_t *)original, sizeof(original[0]), kPpuRenderFlags_NewRenderer);
+    ppu.inidisp = 15; ppu.bgmode = 7; ppu.obsel = 2; ppu.screenEnabled[0] = 0x10;
+    ppu.cgram[0] = 0x03e0; ppu.cgram[129] = ppu.cgram[193] = 0x7c1f;
+    for (unsigned row = 0; row < 8; ++row) ppu.vram[0x4000 + row] = 0xff;
+    for (unsigned phase = 0; phase < 4; ++phase) {
+        /* Jump: all eight pieces. Landing/bounce: hide the last two with
+         * the native X-high bits, keeping nonzero Y and stale artwork. */
+        Word(ram + 0xd80, phase == 0 ? 0xaaaa : 0x5aaa);
+        for (unsigned p = 6; p < 8; ++p)
+            Word(ram + 0x300 + p * 4, ((100 + p * 8 - phase * 7) << 8) | (96 + (p & 1) * 16));
+        FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
+        CHECK(frame.car[0].visible && frame.car[1].added && frame.car[1].x == 450);
+        memset(&layers, 0, sizeof(layers)); layers.vehicles = frame;
+        for (int line = 93; line <= 170; ++line) {
+            ppu_runLine(&ppu, line); saved_ppu = ppu;
+            FZeroLayersProcessLine(&layers, &ppu, line, true, true);
+            CHECK(!memcmp(&saved_ppu, &ppu, sizeof(ppu)));
+            for (int x = -270; x < 526; ++x) {
+                if (x >= 0 && x < 256) continue;
+                bool opponent = line >= 93 && line <= 100 && x >= 450 && x < 458;
+                CHECK(layers.ultra_world[line-1][x+270] == (opponent ? 0xff00ff : 0x00ff00));
+                CHECK(!layers.ultra_hud[line-1][x+270]);
+            }
+        }
+    }
+}
+
+static void TestUltraComposition(void) {
+    Fixture(); ram[0xb02] = ram[0xb04] = 0x80;
+    Word(ram + 0x1172, -178); Word(ram + 0x1174, 172);
+    FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom));
+    for (unsigned id = 1; id <= 2; ++id) frame.car[id].oam[1] |= 0x0800;
+    memset(&layers, 0, sizeof(layers)); layers.vehicles = frame;
+    ppu_reset(&ppu);
+    PpuBeginDrawing(&ppu, (uint8_t *)original, sizeof(original[0]), kPpuRenderFlags_NewRenderer);
+    ppu.inidisp = 15; ppu.obsel = 2;
+    ppu.cgram[0] = 0x03e0; ppu.cgram[193] = 0x7c1f; ppu.fixedColor = 0x4210;
+    const unsigned edges[][4] = {{0,255,0,255},{8,248,24,240},{0,120,160,255},
+                                  {255,0,250,5},{16,255,0,230}};
+    for (unsigned mode = 0; mode < 2; ++mode)
+    for (unsigned e = 0; e < sizeof(edges)/sizeof(edges[0]); ++e)
+    for (unsigned flags = 0; flags < 16; ++flags)
+    for (unsigned logic = 0; logic < 4; ++logic)
+    for (unsigned sub = 0; sub < 2; ++sub) {
+        ppu.bgmode = mode ? 7 : 1;
+        ppu.screenEnabled[0] = 0x10; ppu.screenEnabled[1] = sub ? 0x10 : 0;
+        ppu.screenWindowed[0] = ppu.screenWindowed[1] = 0x10;
+        ppu.window1left = edges[e][0]; ppu.window1right = edges[e][1];
+        ppu.window2left = edges[e][2]; ppu.window2right = edges[e][3];
+        ppu.windowsel = flags << 16; ppu.wbgobjlog = logic << 8;
+        ppu.cgwsel = sub ? 2 : 0; ppu.cgadsub = 0x10 | ((flags & 3) << 6);
+        ppu_runLine(&ppu, 93);
+        FZeroLayersProcessLine(&layers, &ppu, 93, true, true);
+#ifndef FZERO_TEST_ULTRA
+        /* The existing PPU side renderer is the independent reference for
+         * every window operation, pinned edge, subscreen and colour mode. */
+        for (int x = 0; x < FZERO_WIDE_WIDTH; ++x) {
+            CHECK(layers.ultra_world[92][x+199] == layers.wide_world[92][x]);
+            CHECK(layers.ultra_hud[92][x+199] == layers.wide_hud[92][x]);
+        }
+#endif
+    }
 }
 
 void TestVehicles(void) {
@@ -305,5 +420,10 @@ void TestVehicles(void) {
         FZeroVehiclesPrepare(&frame, ram, rom, sizeof(rom)); CHECK(!frame.jump_anchor_valid[1]);
     }
     TestGpEndingVehicles();
+    TestUltraComposition();
+    TestPlayerJumpHiddenPieces();
+#ifdef FZERO_TEST_ULTRA
+    TestUltraEdges();
+#endif
     puts("wide vehicle tests: passed");
 }

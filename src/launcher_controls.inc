@@ -20,7 +20,17 @@ void fzero_launcher_display(LauncherModel* m, const LauncherTheme& th) {
     const float column = ImGui::CalcTextSize("Stretch to Fill").x + px(18);
     auto* extra = FZeroLauncherExtraSettings();
     fzero_launcher_toggle("Fullscreen", "##fullscreen", &m->s.fullscreen, th, column);
-    fzero_launcher_toggle("Widescreen", "##widescreen", &m->s.widescreen, th, column);
+    row_label("Aspect Ratio", th, column);
+    static const char* aspects[] = {"Original", "16:9", "32:9"};
+    ImGui::SetNextItemWidth(px(180));
+    if (ImGui::BeginCombo("##aspect_ratio", aspects[extra->aspect_ratio])) {
+        for (int value = 0; value < 3; ++value)
+            if (ImGui::Selectable(aspects[value], extra->aspect_ratio == value)) {
+                extra->aspect_ratio = value;
+                m->s.widescreen = value != 0;
+            }
+        ImGui::EndCombo();
+    }
     row_label("Window Scale", th, column);
     ImGui::SetNextItemWidth(px(180));
     char scale[16]; std::snprintf(scale, sizeof(scale), "%dx", m->s.window_scale);

@@ -64,9 +64,11 @@ rate for small differences between the game clock and the audio device.
 
 ## Display composition
 
-The host retains native 256x224 and wide 398x224 scene/HUD surfaces. The wide
-view adds 71 columns on each side. Both views update each frame, so an aspect
-or style switch while paused needs no new game frame.
+The host retains Original 256x224, 16:9 398x224, and 32:9 796x224 scene/HUD
+surfaces. The wider views add 71 and 270 columns per side. All three views
+update each frame, so an aspect or style switch while paused needs no new
+game frame. Both wider views use the same scene policy, HUD capture and
+relocation, filters, transition guards, ground correction, and vehicle data.
 
 Side rendering operates on copied PPU state. The native centre is inserted
 before HUD relocation. Live PPU state, guest memory, physics, object lifetime,
@@ -76,10 +78,24 @@ and native sprite limits are unchanged.
   moving VRAM cache. Check camera/raster alignment and render separate spans
   when margin samples conflict at one cache address.
 - **Scenery:** unwrap recognised sky and horizon panorama strips, retaining
-  each layer's scroll and repeat period.
+  each layer's scroll and repeat period. At 32:9, draw the left and right
+  spans separately to prevent a 512-pixel tilemap address from representing
+  two different panorama positions in one pass.
 - **Vehicles:** project active cars with ROM perspective/layout data and current
   ROM/RAM graphics. Keep native pieces when available and preserve depth,
   upload timing, shadow cadence, and conservative exceptional-state guards.
+  For 32:9, retain signed positions for cars and each shadow piece. Rasterise
+  OBJ in two bounded views with origins at -199 and +199, then insert their
+  side priority pixels before the full-width PPU colour composition. This
+  avoids nine-bit coordinate wrap while retaining PPU tile decoding, flips,
+  priority, windows, brightness, and colour math. The line enhancer takes
+  background priority buffers from an unmodified background pass, including
+  each ground-alias pass. Skip that extra pass when no side OBJ is present.
+  Hide unused full-width OAM by scanline distance, since X=-256 is visible
+  at 32:9. The player's native pose buffer also uses X-high to hide unused
+  pieces when switching between six- and eight-piece jump/landing poses.
+  Reject those pieces before coordinate unwrapping, even when their Y and
+  artwork remain populated. Opponent X-high bits retain their coordinate role. Pinned dependency sources and their ABI remain unchanged.
 - **HUD:** capture final visible RGB, including brightness, windows, and colour
   math. Restore the scene beneath old instrument positions before placing the
   instruments at the wider edges. Keep messages and repair sprites centred;
@@ -154,9 +170,11 @@ navigation, exit and confirmation handling.
 The host observes an accepted clear and clears every car on that track.
 
 The Records headers have separate tilemaps from the racing panoramas. The
-wide view covers all 15 tracks with eight shared tile arrangements, retaining
-each track's resident palette. It adds nine source tile columns per side,
-cropped to the existing 71-pixel margins. Fixed column recipes continue the
+wider views cover all 15 tracks with eight shared tile arrangements, retaining
+each track's resident palette. Each side uses a nine-column source recipe,
+cropped to the 71-pixel margins at 16:9. At 32:9, repeat these recipes outward
+with the same tile phase, using separate side passes to avoid tilemap aliasing.
+Fixed column recipes continue the
 low skyline, terrain and sky, preserving the central landmarks. Port Town
 continues its horizontal sky edge tiles above the distant structures, so its
 sloping bands do not restart in the margins. The
@@ -209,7 +227,10 @@ save only when the destination is absent and retains the original.
 
 The launcher's Display menu uses the same seven controls and order as the
 in-game menu. `launcher_settings.c` transfers standard ABI fields and stages
-Race Filter and FPS Readout, which the pinned launcher ABI does not contain.
+Aspect Ratio, Race Filter and FPS Readout. The pinned launcher ABI has only a
+boolean widescreen field; the host stages the three-way aspect choice and
+uses that field for compatibility. The saved `Widescreen` key retains values
+0 (Original) and 1 (16:9), and adds 2 (32:9). No existing setting is migrated.
 Play accepts those staged settings; closing the launcher discards them. The
 hotkey panel lists fixed Settings, Screenshot and Quit shortcuts plus the
 existing FPS binding editor. The controller page offers the input sources and

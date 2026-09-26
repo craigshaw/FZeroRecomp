@@ -20,10 +20,11 @@ bool FZeroPresentationHasShader(const FZeroPresentation *video);
 void FZeroPresentationSetStyle(FZeroPresentation *video, FZeroVisualStyle style);
 bool FZeroPresentationUpload(FZeroPresentation *video, const void *world,
                              const void *hud);
-/* Wide surfaces are 398x224. The original surfaces stay resident so view
+/* Wider surfaces are 398x224 and 796x224. All surfaces stay resident so view
  * changes while paused do not require another game frame. */
 bool FZeroPresentationUploadWide(FZeroPresentation *video, const void *world, const void *hud);
-void FZeroPresentationSetWidescreen(FZeroPresentation *video, bool widescreen);
+bool FZeroPresentationUploadUltra(FZeroPresentation *video, const void *world, const void *hud);
+void FZeroPresentationSetWidescreen(FZeroPresentation *video, int widescreen);
 /* Compose at native resolution before scaling, preserving filtering at HUD
  * edges. The menu and FPS pass follow this call with default shader state. */
 bool FZeroPresentationDraw(FZeroPresentation *video);

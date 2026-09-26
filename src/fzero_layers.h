@@ -14,7 +14,11 @@ typedef struct FZeroLayers {
     uint32_t wide_world[FZERO_LAYER_HEIGHT][FZERO_WIDE_WIDTH];
     uint32_t wide_hud[FZERO_LAYER_HEIGHT][FZERO_WIDE_WIDTH];
     uint32_t wide_capture[FZERO_LAYER_HEIGHT][FZERO_WIDE_WIDTH];
-    Ppu scratch;
+    uint32_t ultra_world[FZERO_LAYER_HEIGHT][FZERO_ULTRA_WIDTH];
+    uint32_t ultra_hud[FZERO_LAYER_HEIGHT][FZERO_ULTRA_WIDTH];
+    uint32_t ultra_capture[FZERO_LAYER_HEIGHT][FZERO_ULTRA_WIDTH];
+    Ppu scratch, sprite_scratch, background_scratch;
+    PpuZbufType ultra_sprites[FZERO_ULTRA_WIDTH];
     FZeroVehicles vehicles;
     FZeroGround ground;
     /* Policy for the pending upload, captured with vehicles and ground. */

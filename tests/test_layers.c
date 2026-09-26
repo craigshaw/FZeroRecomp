@@ -3,6 +3,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include "fzero_layers.h"
+#ifdef FZERO_TEST_ULTRA
+#define FZERO_WIDE_WIDTH FZERO_ULTRA_WIDTH
+#define FZERO_WIDE_MARGIN FZERO_ULTRA_MARGIN
+#define wide_world ultra_world
+#define wide_hud ultra_hud
+#define wide_capture ultra_capture
+#endif
+
 #include "snes/snes.h"
 
 Snes *g_snes;
@@ -26,6 +34,12 @@ static void CheckPolicy(bool active, bool hud_layout, int line) {
     memcpy(&saved, &ppu, sizeof(ppu));
     FZeroLayersProcessLine(&layers, &ppu, line, active, hud_layout);
     CHECK(!memcmp(&saved, &ppu, sizeof(ppu)));
+#ifndef FZERO_TEST_ULTRA
+    if (!layers.move_hud) for (int x = 0; x < FZERO_WIDE_WIDTH; ++x) {
+        CHECK(layers.ultra_world[line-1][x+FZERO_ULTRA_MARGIN-FZERO_WIDE_MARGIN] == layers.wide_world[line-1][x]);
+        CHECK(layers.ultra_hud[line-1][x+FZERO_ULTRA_MARGIN-FZERO_WIDE_MARGIN] == layers.wide_hud[line-1][x]);
+    }
+#endif
     for (int x = 0; x < 256; ++x) {
         uint32_t pixel = layers.hud[line - 1][x] ? layers.hud[line - 1][x] : layers.world[line - 1][x];
         CHECK((pixel & 0xffffff) == (original[line - 1][x] & 0xffffff));
@@ -738,7 +752,9 @@ int main(void) {
     CheckAt(true,111); CHECK(!layers.wide_hud[110][0]);
     ppu.inidisp=0x80; CheckAt(true,111);
     CHECK(!layers.wide_world[110][0] && layers.wide_hud[110][0]==0xff000000);
-    CheckWideSprites();
+#ifndef FZERO_TEST_ULTRA
+    CheckWideSprites(); /* Raw nine-bit fallback is bounded to the old view. */
+#endif
     CheckMovedHud();
     CheckTextFilters(false);
     CheckTextFilters(true);

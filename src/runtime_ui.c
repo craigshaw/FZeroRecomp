@@ -81,15 +81,17 @@ static const char *const kPlayerSourceChoices[] = {"None", "Keyboard", "Gamepad"
 static const int kPlayerSourceValues[] = {0, 1, 2};
 static const char *const kVisualChoices[] = {"Original", "Enhanced", "Vivid", "Black & White"};
 static const int kVisualValues[] = {0, 1, 2, 3};
+static const char *const kAspectChoices[] = {"Original", "16:9", "32:9"};
+static const int kAspectValues[] = {0, 1, 2};
 
 static const RecompRuntimeUiItem kItems[] = {
     /* Display */
     {RECOMP_RUNTIME_UI_KEY_FULLSCREEN, "Display", "Fullscreen",
      "Toggle borderless fullscreen.", RECOMP_RUNTIME_UI_BOOL,
      0, 1, 1, NULL, 0, NULL},
-    {FZERO_KEY_WIDESCREEN, "Display", "Widescreen",
-     "Extended racing view with additional vehicles.", RECOMP_RUNTIME_UI_BOOL,
-     0, 1, 1, NULL, 0, NULL},
+    {FZERO_KEY_WIDESCREEN, "Display", "Aspect Ratio",
+     "Original, 16:9 widescreen or 32:9 ultrawide.", RECOMP_RUNTIME_UI_CHOICE,
+     0, 2, 1, kAspectChoices, 3, kAspectValues},
     {RECOMP_RUNTIME_UI_KEY_WINDOW_SCALE, "Display", "Window Scale",
      "Window size multiplier; applies immediately.", RECOMP_RUNTIME_UI_INT,
      1, 8, 1, NULL, 0, NULL},
@@ -183,7 +185,7 @@ static int SetValue(void *context, const RecompRuntimeUiItem *item,
     if (rt->audio_stream)
       SDL_SetAudioStreamGain(rt->audio_stream, (float)s->volume / 100.0f);
   } else if (!strcmp(item->key, FZERO_KEY_WIDESCREEN)) {
-    s->widescreen = value != 0;
+    s->widescreen = value < 0 ? 0 : value > 2 ? 2 : value;
     if (!(SDL_GetWindowFlags(rt->window) & SDL_WINDOW_FULLSCREEN))
       SDL_SetWindowSize(rt->window, FZeroDisplayWidth(s->widescreen) * s->window_scale,
                        SNES_H * s->window_scale);

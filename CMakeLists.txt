@@ -151,6 +151,13 @@ if(BUILD_TESTING)
     target_include_directories(fzero_layers_tests PRIVATE src ${SNESRECOMP_RUNNER_INCLUDE_DIRS})
     target_compile_definitions(fzero_layers_tests PRIVATE SNESRECOMP_REVERSE_DEBUG=0)
     add_test(NAME fzero_layers COMMAND fzero_layers_tests)
+    add_executable(fzero_ultra_layers_tests tests/test_layers.c tests/test_vehicles.c tests/test_ground.c
+        src/fzero_layers.c src/fzero_vehicles.c src/fzero_ground.c
+        ${SNESRECOMP_RUNNER_ROOT}/src/snes/ppu.c
+        ${SNESRECOMP_RUNNER_ROOT}/src/snes/ppu_legacy.c)
+    target_include_directories(fzero_ultra_layers_tests PRIVATE src ${SNESRECOMP_RUNNER_INCLUDE_DIRS})
+    target_compile_definitions(fzero_ultra_layers_tests PRIVATE SNESRECOMP_REVERSE_DEBUG=0 FZERO_TEST_ULTRA=1)
+    add_test(NAME fzero_ultra_layers COMMAND fzero_ultra_layers_tests)
     add_executable(fzero_raster_tests tests/test_raster.c src/fzero_rtl.c)
     target_include_directories(fzero_raster_tests PRIVATE src config ${SNESRECOMP_RUNNER_INCLUDE_DIRS})
     target_compile_definitions(fzero_raster_tests PRIVATE SNESRECOMP_REVERSE_DEBUG=0)

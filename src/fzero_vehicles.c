@@ -125,8 +125,8 @@ static bool ReprojectSideJump(FZeroVehicle *car, unsigned id, unsigned flags,
      * through the near plane and any native-visible artwork under the
      * original game's control. */
     if (!(flags & 0x10) || (flags & 3) || !(ram[0xd51 + id * 2] & 0x80) ||
-        (x >= -32 && x < 288) || x <= -FZERO_WIDE_MARGIN - 64 ||
-        x >= 256 + FZERO_WIDE_MARGIN + 64 || TouchesNativeView(car)) return false;
+        (x >= -32 && x < 288) || x <= -FZERO_ULTRA_MARGIN - 64 ||
+        x >= 256 + FZERO_ULTRA_MARGIN + 64 || TouchesNativeView(car)) return false;
     FZeroVehicle candidate = *car;
     for (unsigned p = 0; p < car->count; ++p) {
         unsigned high = (car->high >> (p * 2)) & 3;
@@ -160,6 +160,7 @@ static void PrepareShadows(FZeroVehicles *frame, const uint8_t *ram, const uint8
             if (!dx) break;
             unsigned n = frame->shadow_count++;
             int x = car->x + dx;
+            frame->shadow_x[n] = x;
             unsigned flags = parts[p * 4 + 3];
             frame->shadow_oam[n * 2] = ((unsigned)y & 255) << 8 | ((unsigned)x & 255);
             frame->shadow_oam[n * 2 + 1] = parts[p * 4 + 2] | (flags >> 1) << 8;
@@ -230,8 +231,8 @@ void FZeroVehiclesPrepare(FZeroVehicles *frame, const uint8_t *ram,
             }
         } else if (projected && !(flags & 0x13) &&
                    (car->x < -32 || car->x >= 288) &&
-                   car->x > -FZERO_WIDE_MARGIN - 64 &&
-                   car->x < 256 + FZERO_WIDE_MARGIN + 64 &&
+                   car->x > -FZERO_ULTRA_MARGIN - 64 &&
+                   car->x < 256 + FZERO_ULTRA_MARGIN + 64 &&
                    Reconstruct(car, id, ram, rom)) {
             car->visible = car->added = true;
             if (car->x < 0) ++frame->added_left; else ++frame->added_right;
@@ -241,8 +242,8 @@ void FZeroVehiclesPrepare(FZeroVehicles *frame, const uint8_t *ram,
     frame->ready = true;
 }
 
-void FZeroVehiclesApply(const FZeroVehicles *frame, Ppu *copy) {
-    uint8_t hints[16] = {0};
+void FZeroVehiclesApplyOffset(const FZeroVehicles *frame, Ppu *copy, int origin) {
+    uint8_t hints[16] = {0}, right[16] = {0};
     /* The side pass owns its OAM list. Reordering or adding its entries cannot
      * alter the authentic centre or consume its hardware sprite budget. */
     memset(copy->oam, 0, sizeof(copy->oam));
@@ -263,8 +264,22 @@ void FZeroVehiclesApply(const FZeroVehicles *frame, Ppu *copy) {
         for (unsigned p = 0; p < car->count; ++p) {
             unsigned high = (car->high >> (p * 2)) & 3;
             unsigned position = car->oam[p * 2];
-            if ((!order[c] && !(position >> 8)) || (position == 0x8080 && (high & 1))) continue;
-            copy->oam[slot * 2] = position;
+            /* Player poses use X-high as a hide flag for unused pieces.
+             * Jump/landing motion still changes their Y and can retain their
+             * artwork. Decode this flag before unwrapping or translating X;
+             * otherwise the 32:9 view resurrects them in its far right margin.
+             * Opponents use genuine signed/world positions, including X-high. */
+            if ((!order[c] && ((high & 1) || !(position >> 8))) ||
+                (!car->added && position == 0x8080 && (high & 1))) continue;
+            int x = (position & 255) | ((high & 1) << 8);
+            while (x - car->x > 255) x -= 512;
+            while (x - car->x < -256) x += 512;
+            x -= origin;
+            if (x + 64 <= -(int)copy->extraLeftRight ||
+                x >= 256 + copy->extraLeftRight) continue;
+            high = (high & 2) | (((unsigned)x & 511) >> 8);
+            copy->oam[slot * 2] = (position & 0xff00) | ((unsigned)x & 255);
+            if (x >= 256) right[slot / 8] |= 1u << (slot & 7);
             copy->oam[slot * 2 + 1] = car->oam[p * 2 + 1];
             unsigned shift = (slot & 3) * 2;
             copy->highOam[slot / 4] = (copy->highOam[slot / 4] & ~(3u << shift)) | high << shift;
@@ -272,16 +287,26 @@ void FZeroVehiclesApply(const FZeroVehicles *frame, Ppu *copy) {
             ++slot;
         }
     }
-    for (unsigned p = 0; p < frame->shadow_count; ++p, ++slot) {
-        copy->oam[slot * 2] = frame->shadow_oam[p * 2];
+    for (unsigned p = 0; p < frame->shadow_count; ++p) {
+        int x = frame->shadow_x[p] - origin;
+        if (x + 64 <= -(int)copy->extraLeftRight ||
+            x >= 256 + copy->extraLeftRight) continue;
+        copy->oam[slot * 2] = (frame->shadow_oam[p * 2] & 0xff00) | ((unsigned)x & 255);
+        if (x >= 256) right[slot / 8] |= 1u << (slot & 7);
         copy->oam[slot * 2 + 1] = frame->shadow_oam[p * 2 + 1];
         unsigned shift = (slot & 3) * 2;
-        unsigned high = (frame->shadow_high[p / 4] >> ((p & 3) * 2)) & 3;
+        unsigned high = ((frame->shadow_high[p / 4] >> ((p & 3) * 2)) & 2) |
+                        (((unsigned)x & 511) >> 8);
         copy->highOam[slot / 4] = (copy->highOam[slot / 4] & ~(3u << shift)) | high << shift;
         hints[slot / 8] |= 1u << (slot & 7);
+        ++slot;
     }
     copy->oamaddl = copy->oamaddh = 0;
     PpuWsSetOamLeftHints(copy, hints);
-    PpuWsSetOamRightHints(copy, hints);
+    PpuWsSetOamRightHints(copy, right);
     copy->renderFlags |= kPpuRenderFlags_NoSpriteLimits;
+}
+
+void FZeroVehiclesApply(const FZeroVehicles *frame, Ppu *copy) {
+    FZeroVehiclesApplyOffset(frame, copy, 0);
 }

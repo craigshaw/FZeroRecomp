@@ -101,6 +101,16 @@ static void TestLauncherSettings(void) {
   FZeroLauncherExtraSettings()->visual_style = 0;
   FZeroLauncherSettingsBegin(&loaded, &launcher);
   CHECK(FZeroLauncherExtraSettings()->visual_style == 2);
+  loaded.widescreen = 2;
+  FZeroLauncherSettingsBegin(&loaded, &launcher);
+  CHECK(launcher.widescreen == 1 && FZeroLauncherExtraSettings()->aspect_ratio == 2);
+  FZeroLauncherSettingsAccept(&source, &launcher);
+  FZeroSettingsSave("launcher-roundtrip.ini", &source);
+  FZeroSettingsLoad("launcher-roundtrip.ini", &loaded);
+  CHECK(source.widescreen == 2 && loaded.widescreen == 2);
+  FZeroLauncherExtraSettings()->aspect_ratio = 0;
+  FZeroLauncherSettingsBegin(&loaded, &launcher);
+  CHECK(FZeroLauncherExtraSettings()->aspect_ratio == 2);
 }
 
 static void TestBindings(void) {
@@ -253,6 +263,15 @@ static void TestMenu(void) {
   fzero_imgui_render_overlay(ig, rt, renderer, 1, 60.0);
   CHECK(SDL_GetRenderLogicalPresentation(renderer,&wide_w,&wide_h,&wide_mode));
   CHECK(wide_w==FZERO_WIDE_WIDTH && !SDL_RenderViewportSet(renderer));
+  Key(rt, SDL_SCANCODE_RIGHT, 1); CHECK(s.widescreen == 2);
+  FZeroSettingsLoad("config.ini", &saved); CHECK(saved.widescreen == 2);
+  CHECK(SDL_GetRenderLogicalPresentation(renderer,&wide_w,&wide_h,&wide_mode));
+  CHECK(wide_w == FZERO_ULTRA_WIDTH && wide_h == 224);
+  SettleWindow(window, renderer);
+  fzero_imgui_render_overlay(ig, rt, renderer, 1, 60.0);
+  CHECK(SDL_GetRenderLogicalPresentation(renderer,&wide_w,&wide_h,&wide_mode));
+  CHECK(wide_w == FZERO_ULTRA_WIDTH && !SDL_RenderViewportSet(renderer));
+  Key(rt, SDL_SCANCODE_LEFT, 1); CHECK(s.widescreen == 1);
   Key(rt, SDL_SCANCODE_LEFT, 1); CHECK(!s.widescreen);
   SettleWindow(window, renderer);
   FZeroSettingsLoad("config.ini", &saved); CHECK(!saved.widescreen);
@@ -515,6 +534,62 @@ static void TestPresentation(void) {
     FZeroRuntimeUiReapplyLogicalPresentation(renderer, &settings);
     CHECK(FZeroPresentationDraw(video));
     CHECK(FZeroPresentationMatches(video, native_composite));
+  }
+  /* Widen a synthetic scene with bright, distinct sides. Every centre pixel
+   * must match the native composite, even where Enhanced samples neighbours.
+   * Switch both ways without uploading another frame, as a paused menu does. */
+  static Uint32 ultra_world[224][FZERO_ULTRA_WIDTH], ultra_hud[224][FZERO_ULTRA_WIDTH];
+  static Uint32 ultra_native_composite[224][256];
+  for (int y = 0; y < 224; ++y) {
+    for (int x = 0; x < FZERO_ULTRA_WIDTH; ++x)
+      ultra_world[y][x] = x < FZERO_ULTRA_MARGIN ? 0xff0000 : 0x00ff00;
+    memcpy(ultra_world[y] + FZERO_ULTRA_MARGIN, world[y], sizeof(world[y]));
+    memcpy(ultra_hud[y] + FZERO_ULTRA_MARGIN, hud[y], sizeof(hud[y]));
+  }
+  CHECK(FZeroPresentationUploadUltra(video, ultra_world, ultra_hud));
+  for (int filter = 0; filter < 2; ++filter) for (int style = 0; style <= FZERO_VISUAL_HUD_DIAGNOSTIC; ++style) {
+    CHECK(SDL_SetTextureScaleMode(texture, filter ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST));
+    FZeroPresentationSetWidescreen(video, false);
+    settings.widescreen = 0;
+    FZeroRuntimeUiReapplyLogicalPresentation(renderer, &settings);
+    FZeroPresentationSetStyle(video, (FZeroVisualStyle)style);
+    CHECK(FZeroPresentationDraw(video));
+    CheckScreenshot(video);
+    SDL_Surface *raw = FZeroPresentationReadComposite(video); CHECK(raw);
+    SDL_Surface *pixels = SDL_ConvertSurface(raw, SDL_PIXELFORMAT_ARGB8888); CHECK(pixels);
+    for (int y = 0; y < 224; ++y)
+      memcpy(ultra_native_composite[y], (Uint8 *)pixels->pixels + y * pixels->pitch, sizeof(ultra_native_composite[y]));
+    SDL_DestroySurface(pixels); SDL_DestroySurface(raw);
+    FZeroPresentationSetWidescreen(video, 2);
+    settings.widescreen = 2;
+    FZeroRuntimeUiReapplyLogicalPresentation(renderer, &settings);
+    CHECK(FZeroPresentationDraw(video));
+    CHECK(FZeroPresentationMatches(video, ultra_native_composite));
+    CHECK(FZeroPresentationMatchesMasked(video, expected, hud));
+    CHECK(FZeroPresentationMatchesWide(video, ultra_world, ultra_hud, style != 0));
+    raw = FZeroPresentationReadComposite(video); CHECK(raw);
+    pixels = SDL_ConvertSurface(raw, SDL_PIXELFORMAT_ARGB8888); CHECK(pixels);
+    CHECK(pixels->w == FZERO_ULTRA_WIDTH && pixels->h == 224);
+    if (style == 0) for (int y = 0; y < 224; ++y) {
+      Uint32 *row = (Uint32 *)((Uint8 *)pixels->pixels + y * pixels->pitch);
+      for (int x = 0; x < FZERO_ULTRA_WIDTH; ++x)
+        if (x < FZERO_ULTRA_MARGIN || x >= FZERO_ULTRA_MARGIN + 256)
+          CHECK((row[x] & 0xffffff) == ultra_world[y][x]);
+    }
+    SDL_DestroySurface(pixels); SDL_DestroySurface(raw);
+    /* Match the host order: capture the scaled game before any overlay. */
+    CheckScreenshot(video);
+    fzero_imgui_render_overlay(ig, rt, renderer, 1, 60.0);
+    int w, h; SDL_RendererLogicalPresentation mode;
+    CHECK(SDL_GetRenderLogicalPresentation(renderer, &w, &h, &mode));
+    CHECK(w == FZERO_ULTRA_WIDTH && h == 224);
+    CHECK(!SDL_GetRenderTarget(renderer) && !SDL_RenderViewportSet(renderer));
+    CHECK(SDL_RenderPresent(renderer));
+    FZeroPresentationSetWidescreen(video, false);
+    settings.widescreen = 0;
+    FZeroRuntimeUiReapplyLogicalPresentation(renderer, &settings);
+    CHECK(FZeroPresentationDraw(video));
+    CHECK(FZeroPresentationMatches(video, ultra_native_composite));
   }
   /* Relocated overlay pixels in both margins are included in readback checks. */
   wide_hud[10][20]=0xff123456; wide_hud[10][378]=0xffabcdef;

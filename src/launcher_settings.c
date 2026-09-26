@@ -13,7 +13,8 @@ void FZeroLauncherSettingsBegin(const FZeroSettings *s,
   l->fullscreen = s->fullscreen;
   l->ignore_aspect = s->ignore_aspect;
   l->linear_filter = s->linear_filter;
-  l->widescreen = s->widescreen;
+  l->widescreen = s->widescreen != 0;
+  extras.aspect_ratio = s->widescreen;
   l->enable_audio = s->enable_audio;
   l->audio_freq = s->audio_freq;
   l->volume = s->volume;
@@ -33,7 +34,7 @@ void FZeroLauncherSettingsAccept(FZeroSettings *s,
   s->fullscreen = l->fullscreen != 0;
   s->ignore_aspect = l->ignore_aspect != 0;
   s->linear_filter = l->linear_filter != 0;
-  s->widescreen = l->widescreen != 0;
+  s->widescreen = l->widescreen ? extras.aspect_ratio : 0;
   s->visual_style = extras.visual_style;
   s->show_fps = extras.show_fps != 0;
   s->enable_audio = l->enable_audio != 0;

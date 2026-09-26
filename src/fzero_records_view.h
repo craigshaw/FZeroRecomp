@@ -14,3 +14,6 @@ void FZeroRecordsViewLine(FZeroRecordsView *view, const FZeroRecordsRuntime *rec
  * full-height wide scratch surface; the caller uses only the side columns. */
 bool FZeroRecordsBackdropLine(FZeroRecordsView *view, const FZeroRecordsRuntime *records,
                               const Ppu *ppu, int line, uint8_t *pixels, size_t pitch);
+
+bool FZeroRecordsBackdropLineAtMargin(FZeroRecordsView *view, const FZeroRecordsRuntime *records,
+    const Ppu *ppu, int line, uint8_t *pixels, size_t pitch, int margin);

@@ -1,5 +1,13 @@
 /* Synthetic course trees and artwork only. */
 #include "fzero_layers.h"
+#ifdef FZERO_TEST_ULTRA
+#define FZERO_WIDE_WIDTH FZERO_ULTRA_WIDTH
+#define FZERO_WIDE_MARGIN FZERO_ULTRA_MARGIN
+#define wide_world ultra_world
+#define wide_hud ultra_hud
+#define wide_capture ultra_capture
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,18 +69,18 @@ static void CheckRender(int line, int angle_case, unsigned wx, unsigned wy) {
     memcpy(&saved,&ppu,sizeof(ppu));
     unsigned long prior=layers.ground.lines;
     FZeroLayersProcessLine(&layers,&ppu,line,true,true);
-    CHECK(layers.ground.lines==prior+1);
+    CHECK(layers.ground.lines==prior+2);
     CHECK(!memcmp(&saved,&ppu,sizeof(ppu)));
     CHECK(!memcmp(saved_ram,ram,sizeof(ram)));
-    for(int x=0;x<398;++x) {
-        if(x>=71&&x<327) {
-            CHECK(layers.wide_world[line-1][x]==layers.world[line-1][x-71]);
-            CHECK(layers.wide_hud[line-1][x]==layers.hud[line-1][x-71]);
-            unsigned result=layers.hud[line-1][x-71]?layers.hud[line-1][x-71]:layers.world[line-1][x-71];
-            CHECK((result&0xffffff)==original[line-1][x-71]);
+    for(int x=0;x<FZERO_WIDE_WIDTH;++x) {
+        if(x>=FZERO_WIDE_MARGIN&&x<(256+FZERO_WIDE_MARGIN)) {
+            CHECK(layers.wide_world[line-1][x]==layers.world[line-1][x-FZERO_WIDE_MARGIN]);
+            CHECK(layers.wide_hud[line-1][x]==layers.hud[line-1][x-FZERO_WIDE_MARGIN]);
+            unsigned result=layers.hud[line-1][x-FZERO_WIDE_MARGIN]?layers.hud[line-1][x-FZERO_WIDE_MARGIN]:layers.world[line-1][x-FZERO_WIDE_MARGIN];
+            CHECK((result&0xffffff)==original[line-1][x-FZERO_WIDE_MARGIN]);
             continue;
         }
-        int rx=(ppu.m7sel&1)?255-(x-71):x-71;
+        int rx=(ppu.m7sel&1)?255-(x-FZERO_WIDE_MARGIN):x-FZERO_WIDE_MARGIN;
         int ry=(ppu.m7sel&2)?255-line:line;
         /* Only the last test has fractional X steps. Its other terms divide
          * exactly; floor the signed sum independently of the implementation. */
@@ -90,7 +98,7 @@ static void CheckRender(int line, int angle_case, unsigned wx, unsigned wy) {
 }
 static void CheckComposition(void) {
     static Ppu reference, corrected;
-    static uint32_t expected[224][398], actual[224][398];
+    static uint32_t expected[224][FZERO_WIDE_WIDTH], actual[224][FZERO_WIDE_WIDTH];
     Init(); Camera(512,512);
     ppu.m7matrix[0]=ppu.m7matrix[3]=256;
     ppu.screenEnabled[0]=0x11;
@@ -113,7 +121,7 @@ static void CheckComposition(void) {
         memcpy(&reference,&ppu,sizeof(ppu)); memcpy(&corrected,&ppu,sizeof(ppu));
         PpuBeginDrawing(&reference,(uint8_t*)expected,sizeof(expected[0]),kPpuRenderFlags_NewRenderer);
         PpuBeginDrawing(&corrected,(uint8_t*)actual,sizeof(actual[0]),kPpuRenderFlags_NewRenderer);
-        PpuSetExtraSpace(&reference,71); PpuSetExtraSpace(&corrected,71);
+        PpuSetExtraSpace(&reference,FZERO_WIDE_MARGIN); PpuSetExtraSpace(&corrected,FZERO_WIDE_MARGIN);
         /* Independent complete resident rectangle for this camera. */
         for(unsigned y=0;y<128;++y) for(unsigned x=0;x<128;++x) {
             unsigned wx=((x*8-512)&1023)+512,wy=((y*8-512)&1023)+512;
@@ -123,7 +131,7 @@ static void CheckComposition(void) {
         ppu_runLine(&reference,0); ppu_runLine(&corrected,0);
         ppu_runLine(&reference,93);
         CHECK(FZeroGroundRenderLine(&layers.ground,&corrected,93));
-        for(int x=0;x<398;++x) if(x<71||x>=327) CHECK(actual[92][x]==expected[92][x]);
+        for(int x=0;x<FZERO_WIDE_WIDTH;++x) if(x<FZERO_WIDE_MARGIN||x>=(256+FZERO_WIDE_MARGIN)) CHECK(actual[92][x]==expected[92][x]);
     }
 }
 void TestGround(void) {
@@ -153,7 +161,7 @@ void TestGround(void) {
     Put(0x15000,0xffff); FZeroGroundPrepare(&layers.ground,ram);
     CHECK(!FZeroGroundTile(&layers.ground,0,0,&tile));
     /* Fail before mutating the copied PPU for unsupported states or timing. */
-    Init(); Camera(0,0); PpuSetExtraSpace(&ppu,71);
+    Init(); Camera(0,0); PpuSetExtraSpace(&ppu,FZERO_WIDE_MARGIN);
     ++ppu.m7matrix[4]; memcpy(&saved,&ppu,sizeof(ppu));
     CHECK(!FZeroGroundRenderLine(&layers.ground,&ppu,93));
     CHECK(!memcmp(&saved,&ppu,sizeof(ppu))); --ppu.m7matrix[4];

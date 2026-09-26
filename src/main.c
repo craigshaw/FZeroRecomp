@@ -614,7 +614,8 @@ int main(int argc, char **argv) {
                                g_layers ? g_layers->hud : NULL))
     Die(SDL_GetError());
 
-  if (g_layers && !FZeroPresentationUploadWide(g_presentation, g_layers->wide_world, g_layers->wide_hud))
+  if (g_layers && (!FZeroPresentationUploadWide(g_presentation, g_layers->wide_world, g_layers->wide_hud) ||
+        !FZeroPresentationUploadUltra(g_presentation, g_layers->ultra_world, g_layers->ultra_hud)))
     Die(SDL_GetError());
 
   if (settings.enable_audio) {
@@ -774,11 +775,12 @@ int main(int argc, char **argv) {
                                    g_layers ? (void *)g_layers->world : g_pixels,
                                    g_layers ? g_layers->hud : NULL))
         Die(SDL_GetError());
-      if (g_layers && !FZeroPresentationUploadWide(g_presentation, g_layers->wide_world, g_layers->wide_hud))
+      if (g_layers && (!FZeroPresentationUploadWide(g_presentation, g_layers->wide_world, g_layers->wide_hud) ||
+        !FZeroPresentationUploadUltra(g_presentation, g_layers->ultra_world, g_layers->ultra_hud)))
         Die(SDL_GetError());
     }
 
-    FZeroPresentationSetWidescreen(g_presentation, settings.widescreen != 0);
+    FZeroPresentationSetWidescreen(g_presentation, settings.widescreen);
     SDL_RenderClear(g_renderer);
     FZeroVisualStyle style = hud_diagnostic ? FZERO_VISUAL_HUD_DIAGNOSTIC :
                               (FZeroVisualStyle)settings.visual_style;
@@ -788,8 +790,9 @@ int main(int argc, char **argv) {
       bool hud_only = style != FZERO_VISUAL_ORIGINAL &&
                       FZeroPresentationHasShader(g_presentation);
       bool matches = settings.widescreen ?
-          FZeroPresentationMatchesWide(g_presentation,g_layers->wide_world,
-                                       g_layers->wide_hud,hud_only) :
+          FZeroPresentationMatchesWide(g_presentation,
+              settings.widescreen == 2 ? (void *)g_layers->ultra_world : g_layers->wide_world,
+              settings.widescreen == 2 ? (void *)g_layers->ultra_hud : g_layers->wide_hud,hud_only) :
           FZeroPresentationMatchesMasked(g_presentation,g_pixels,hud_only?g_layers->hud:NULL);
       if (!matches) {
         fprintf(stderr, "[Video] Frame %ld validation failed: %s\n", host_frame_number, SDL_GetError());

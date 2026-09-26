@@ -13,8 +13,8 @@
 
 /* This test exercises raster ordering with the records renderer disabled. */
 void FZeroRecordsViewLine(FZeroRecordsView *v, const FZeroRecordsRuntime *r, const Ppu *p, int line) { abort(); }
-bool FZeroRecordsBackdropLine(FZeroRecordsView *v, const FZeroRecordsRuntime *r,
-                             const Ppu *p, int line, uint8_t *pixels, size_t pitch) {
+bool FZeroRecordsBackdropLineAtMargin(FZeroRecordsView *v, const FZeroRecordsRuntime *r,
+                             const Ppu *p, int line, uint8_t *pixels, size_t pitch, int margin) {
     if(r)abort();
     return false;
 }
