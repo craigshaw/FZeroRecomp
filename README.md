@@ -13,13 +13,13 @@ part of the source repository.
 
 ## Status and features
 
-F-Zero Recomp is well tested on macOS (Apple Silicon) and Windows (x64).
-It brings full widescreen racing, enhanced visuals, and expanded records
-to the original game.
+F-Zero Recomp brings full widescreen racing, enhanced visuals, and expanded
+records to F-Zero (USA) on macOS (Apple Silicon) and Windows (x64).
 
-- **16:9 widescreen and 32:9 ultrawide racing.** See more of the track and surrounding
-  scenery, with the race HUD positioned for the wider view. Choose Original, 16:9, or 32:9 in the Aspect Ratio setting.
-  Title, race intro, results, GP ending, and Records extensions support both wider views.
+- **Original (8:7), 16:9, and 32:9 display modes.** See more of the track and
+  surrounding scenery in the wider modes, with the race HUD positioned for
+  each view. Choose a mode in the Aspect Ratio setting. Title, race intro,
+  results, GP ending, and Records extensions support the wider views.
 
 - **Enhanced visual filters.** Choose Enhanced or Vivid for richer colours,
   Black & White for a different look, or Original to retain the game's
@@ -32,6 +32,29 @@ to the original game.
   and saves remain compatible with the original game.
 
 Linux builds are not yet verified.
+
+### Widescreen
+
+The same race start in Original, 16:9, and 32:9. Original uses the SNES's
+256 × 224 frame, which is 8:7 with square pixels.
+
+<p align="center">
+  <a href="assets/screenshots/aspect-original.png"><img src="assets/screenshots/aspect-original.png" width="32%" alt="Original 8:7 aspect ratio at the race start"></a>
+  <br>
+  <em>Original (8:7)</em>
+</p>
+
+<p align="center">
+  <a href="assets/screenshots/aspect-16x9.png"><img src="assets/screenshots/aspect-16x9.png" width="50%" alt="16:9 widescreen at the same race start"></a>
+  <br>
+  <em>16:9</em>
+</p>
+
+<p align="center">
+  <a href="assets/screenshots/aspect-32x9.png"><img src="assets/screenshots/aspect-32x9.png" width="100%" alt="32:9 ultrawide at the same race start"></a>
+  <br>
+  <em>32:9</em>
+</p>
 
 ### Visual filters
 
@@ -48,10 +71,10 @@ colours in every mode. Click an image to view it at full size.
 ### Extended records
 
 <p align="center">
-  <a href="assets/screenshots/records1.png"><img src="assets/screenshots/records1.png" width="48%" alt="Blue Falcon records on Mute City I, with new race and lap records highlighted"></a>
-  <a href="assets/screenshots/records2.png"><img src="assets/screenshots/records2.png" width="48%" alt="Combined records on Mute City I, showing each record's car and new-record markers"></a>
+  <a href="assets/screenshots/records1.png"><img src="assets/screenshots/records1.png" width="48%" alt="Blue Falcon records on Big Blue in 16:9, with the extended track header"></a>
+  <a href="assets/screenshots/records2.png"><img src="assets/screenshots/records2.png" width="48%" alt="Combined records on Mute City I in 16:9, with the extended track header"></a>
   <br>
-  <em>Individual car records (left) and combined records (right).</em>
+  <em>Blue Falcon records on Big Blue (left) and combined records on Mute City I (right).</em>
 </p>
 
 ## ROM requirements
