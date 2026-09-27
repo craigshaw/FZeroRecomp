@@ -69,14 +69,12 @@ The launcher also accepts the same payload with a 512-byte copier header.
 ## Download and install
 
 The [0.5.0 release](https://github.com/craigshaw/FZeroRecomp/releases/tag/v0.5.0)
-is available for macOS. The Windows 0.5.0 build is in progress; the
-[0.4.0 release](https://github.com/craigshaw/FZeroRecomp/releases/tag/v0.4.0)
-remains available for Windows. Downloads bundle SDL; no compiler or code
+is available for Windows and macOS. Downloads bundle SDL; no compiler or code
 generation is needed to play. You supply your own F-Zero (USA) ROM.
 
 | Platform | Download | Requirements |
 | --- | --- | --- |
-| Windows | [Windows x64 ZIP (0.4.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.4.0/FZeroRecomp-v0.4.0-Windows-x64.zip) | Windows 10/11 x64; Direct3D 12 with Shader Model 6.0 for visual filters |
+| Windows | [Windows x64 ZIP (0.5.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.5.0/FZeroRecomp-v0.5.0-Windows-x64.zip) | Windows 10/11 x64; Direct3D 12 with Shader Model 6.0 for visual filters |
 | macOS | [Apple Silicon ZIP (0.5.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.5.0/FZeroRecomp-v0.5.0-macOS-arm64.zip) | Apple Silicon (M1 or newer), macOS 13 or newer; Intel Macs are not supported |
 
 ### Windows
@@ -181,14 +179,14 @@ Dependency caches stay under ignored `.tools/` and build directories.
 After building, run:
 
 ```powershell
-python tools/package_windows.py --version 0.4.0
+python tools/package_windows.py --version 0.5.0
 ```
 
 The packager runs CTest and GPU presentation checks (brief test windows appear),
 stages only program files and notices, resolves x64 SDL/Visual C++ runtime
 dependencies, and tests ROM rejection with a clean PATH. A GPU supporting the
 filter path is required on the packaging machine. The ZIP and SHA-256 file are
-written under `build-release/v0.4.0-windows-x64/`. Existing output is never
+written under `build-release/v0.5.0-windows-x64/`. Existing output is never
 overwritten; use `--output` to select a new directory for a subsequent build.
 
 To play, extract the entire ZIP to a writable folder and open
