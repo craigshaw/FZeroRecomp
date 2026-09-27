@@ -6,6 +6,7 @@
 #include <windows.h>
 #endif
 #include "config.h"
+#include "save_location.h"
 #include "launcher_settings.h"
 #include "frame_rate.h"
 #include "runtime_ui.h"
@@ -58,6 +59,16 @@ static void TestSettings(void) {
   FZeroSettingsLoad("config.ini", &loaded);
   CHECK(loaded.volume == 35 && loaded.window_scale == 4 && loaded.linear_filter == 1);
   CHECK(loaded.show_fps == 1 && loaded.visual_style == 3 && loaded.widescreen == 1);
+  char *cwd = SDL_GetCurrentDirectory(); CHECK(cwd);
+  char save_folder[FZERO_SAVE_PATH_CAPACITY], folder_error[256];
+  SDL_snprintf(save_folder, sizeof(save_folder), "%s/host-ui-saves", cwd);
+  SDL_free(cwd);
+  CHECK(SDL_CreateDirectory(save_folder));
+  CHECK(FZeroSaveLocationSelect(save_folder, folder_error, sizeof(folder_error)));
+  FZeroSettingsSave("config.ini", &loaded);
+  CHECK(FZeroSaveLocationLoad(folder_error, sizeof(folder_error)));
+  CHECK(!SDL_strcmp(FZeroSaveDirectory(), save_folder));
+  CHECK(FZeroSaveLocationSelect("", folder_error, sizeof(folder_error)));
   const char *windows_other = "[KeyMap]\r\n# Windows line endings\r\nPause = P\r\n";
   Write("windows.ini", "[Settings]\r\nVolume = 20\r\n[KeyMap]\r\n# Windows line endings\r\nPause = P\r\n");
   FZeroSettingsSave("windows.ini", &s);

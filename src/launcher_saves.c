@@ -1,12 +1,7 @@
 #include "launcher_saves.h"
+#include "save_location.h"
 #include <SDL3/SDL.h>
-#include <errno.h>
 #include <string.h>
-#include <sys/stat.h>
-
-static const char *save_path = "saves/save.srm";
-static const char *backup_path = "saves/save.srm.bak";
-static const char *temp_path = "saves/save.srm.importing";
 
 static int Failure(char *error, size_t capacity, const char *action) {
     SDL_snprintf(error, capacity, "%s: %s", action, SDL_GetError());
@@ -14,10 +9,15 @@ static int Failure(char *error, size_t capacity, const char *action) {
 }
 
 static int BackupSave(char *error, size_t capacity) {
-    struct stat info;
-    if (stat(save_path, &info) != 0) {
-        if (errno == ENOENT) return 1;
-        SDL_SetError("%s", strerror(errno));
+    const char *save_path = FZeroSaveFile();
+    char backup_path[FZERO_SAVE_PATH_CAPACITY];
+    if (!FZeroSavePath(backup_path, sizeof(backup_path), "save.srm.bak")) {
+        SDL_snprintf(error, capacity, "The save backup path is too long.");
+        return 0;
+    }
+    FZeroSavePathState state = FZeroSavePathStatus(save_path);
+    if (state != FZERO_SAVE_PATH_EXISTS) {
+        if (state == FZERO_SAVE_PATH_MISSING) return 1;
         return Failure(error, capacity, "Cannot inspect the current save");
     }
     if (!SDL_CopyFile(save_path, backup_path))
@@ -27,6 +27,12 @@ static int BackupSave(char *error, size_t capacity) {
 
 int FZeroImportSave(const char *source, char *error, size_t capacity) {
     error[0] = '\0';
+    const char *save_path = FZeroSaveFile();
+    char temp_path[FZERO_SAVE_PATH_CAPACITY];
+    if (!FZeroSavePath(temp_path, sizeof(temp_path), "save.srm.importing")) {
+        SDL_snprintf(error, capacity, "The save import path is too long.");
+        return 0;
+    }
     size_t size = 0;
     /* Read before touching the destination or backup: selecting either of
      * those files for import must also preserve the selected bytes. SDL's
@@ -38,9 +44,9 @@ int FZeroImportSave(const char *source, char *error, size_t capacity) {
         SDL_snprintf(error, capacity, "The selected save is empty.");
         return 0;
     }
-    if (!SDL_CreateDirectory("saves")) {
+    if (!FZeroSaveEnsureDirectory()) {
         SDL_free(data);
-        return Failure(error, capacity, "Cannot create the saves folder");
+        return Failure(error, capacity, "Cannot open the save folder");
     }
     /* Exclusive creation avoids overwriting a leftover import or another
      * process's temporary file. Stage fully before backing up/replacing SRAM. */
@@ -67,6 +73,7 @@ int FZeroImportSave(const char *source, char *error, size_t capacity) {
 
 int FZeroClearSave(char *error, size_t capacity) {
     error[0] = '\0';
+    const char *save_path = FZeroSaveFile();
     if (!BackupSave(error, capacity)) return 0;
     if (!SDL_RemovePath(save_path))
         return Failure(error, capacity, "Cannot clear the current save");
