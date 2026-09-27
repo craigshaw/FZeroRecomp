@@ -68,14 +68,16 @@ The launcher also accepts the same payload with a 512-byte copier header.
 
 ## Download and install
 
-The [0.4.0 release](https://github.com/craigshaw/FZeroRecomp/releases/tag/v0.4.0)
-is available for Windows and macOS. Downloads bundle SDL; no compiler or code
+The [0.5.0 release](https://github.com/craigshaw/FZeroRecomp/releases/tag/v0.5.0)
+is available for macOS. The Windows 0.5.0 build is in progress; the
+[0.4.0 release](https://github.com/craigshaw/FZeroRecomp/releases/tag/v0.4.0)
+remains available for Windows. Downloads bundle SDL; no compiler or code
 generation is needed to play. You supply your own F-Zero (USA) ROM.
 
 | Platform | Download | Requirements |
 | --- | --- | --- |
 | Windows | [Windows x64 ZIP (0.4.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.4.0/FZeroRecomp-v0.4.0-Windows-x64.zip) | Windows 10/11 x64; Direct3D 12 with Shader Model 6.0 for visual filters |
-| macOS | [Apple Silicon ZIP (0.4.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.4.0/FZeroRecomp-v0.4.0-macOS-arm64.zip) | Apple Silicon (M1 or newer), macOS 13 or newer; Intel Macs are not supported |
+| macOS | [Apple Silicon ZIP (0.5.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.5.0/FZeroRecomp-v0.5.0-macOS-arm64.zip) | Apple Silicon (M1 or newer), macOS 13 or newer; Intel Macs are not supported |
 
 ### Windows
 
@@ -102,7 +104,7 @@ backs up an existing save as `saves/save.srm.bak` before replacing it.
 
 ### macOS
 
-1. Download `FZeroRecomp-v0.4.0-macOS-arm64.zip` from the release's **Assets**.
+1. Download `FZeroRecomp-v0.5.0-macOS-arm64.zip` from the release's **Assets**.
 2. Extract the ZIP and drag **F-Zero Recomp.app** into **Applications**.
 3. Open the app, select your F-Zero (USA) ROM, and press **Play**.
 
@@ -297,7 +299,7 @@ SDL3, install its development files and set `SDL3_DIR` to the folder containing
 
 See [architecture](docs/ARCHITECTURE.md) and [dependency patches](docs/SNESRECOMP_PATCHES.md).
 After generation, maintainers can build the Mac release with
-`python3 tools/package_macos.py --version 0.2.0`. This downloads and verifies
+`python3 tools/package_macos.py --version 0.5.0`. This downloads and verifies
 SDL source, builds it for macOS 13, runs CTest, and writes the app, ZIP, and
 checksum under `build-release/`.
 
