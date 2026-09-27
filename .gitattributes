@@ -4,3 +4,6 @@ patches/recomp-ui/*.patch text eol=lf -whitespace
 
 *.ps1 text eol=crlf
 *.sh text eol=lf
+
+# The generator writes this tracked header with LF on every platform.
+config/funcs.h text eol=lf
