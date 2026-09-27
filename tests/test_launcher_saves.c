@@ -1,4 +1,5 @@
 #include "launcher_saves.h"
+#include "save_location.h"
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +17,9 @@ static void CheckFile(const char *path, const unsigned char *expected) {
 
 int main(int argc, char **argv) {
     char error[1024];
+    SDL_RemovePath("config.ini");
+    SDL_RemovePath("config.ini.save-folder.tmp");
+    CHECK(FZeroSaveLocationLoad(error, sizeof(error)) && FZeroSaveIsDefault());
     /* CTest provides an isolated working directory. Remove only known test
      * artifacts so repeated runs still exercise a missing saves directory. */
     SDL_RemovePath("saves/save.srm");
@@ -65,6 +69,40 @@ int main(int argc, char **argv) {
     CHECK(FZeroClearSave(error, sizeof(error)));
     CHECK(!SDL_GetPathInfo("saves/save.srm", &info));
     CheckFile("saves/save.srm.bak", original);
+    /* A custom location is persistent and owns its import, backup and clear. */
+    char *cwd = SDL_GetCurrentDirectory();
+    CHECK(cwd);
+    char selected[FZERO_SAVE_PATH_CAPACITY], custom_save[FZERO_SAVE_PATH_CAPACITY];
+    SDL_snprintf(selected, sizeof(selected), "%s/custom-saves", cwd);
+    SDL_free(cwd);
+    CHECK(SDL_CreateDirectory(selected));
+    const char *config = "# local preferences\n[Settings]\nVolume = 25\n"
+                         "[KeyMap]\nDisplayPerf = F\n";
+    CHECK(SDL_SaveFile("config.ini", config, SDL_strlen(config)));
+    CHECK(FZeroSaveLocationSelect(selected, error, sizeof(error)));
+    CHECK(!FZeroSaveIsDefault());
+    CHECK(FZeroSaveLocationLoad(error, sizeof(error)));
+    CHECK(!SDL_strcmp(FZeroSaveDirectory(), selected));
+    size_t config_size = 0;
+    char *saved_config = SDL_LoadFile("config.ini", &config_size);
+    CHECK(saved_config && SDL_strstr(saved_config, config) == saved_config);
+    CHECK(SDL_strstr(saved_config, "[Save]\nFolder = ") != NULL);
+    SDL_free(saved_config);
+    CHECK(FZeroSavePath(custom_save, sizeof(custom_save), "save.srm"));
+    CHECK(FZeroImportSave(source, error, sizeof(error)));
+    CheckFile(custom_save, imported);
+    CHECK(FZeroImportSave("saves/save.srm.bak", error, sizeof(error)));
+    CheckFile(custom_save, original);
+    char custom_backup[FZERO_SAVE_PATH_CAPACITY];
+    CHECK(FZeroSavePath(custom_backup, sizeof(custom_backup), "save.srm.bak"));
+    CheckFile(custom_backup, imported);
+    CHECK(FZeroClearSave(error, sizeof(error)));
+    CHECK(!SDL_GetPathInfo(custom_save, &info));
+    CheckFile(custom_backup, original);
+    CHECK(!FZeroSaveLocationSelect("relative-folder", error, sizeof(error)));
+    CHECK(!SDL_strcmp(FZeroSaveDirectory(), selected));
+    CHECK(FZeroSaveLocationSelect("", error, sizeof(error)));
+    CHECK(FZeroSaveLocationLoad(error, sizeof(error)) && FZeroSaveIsDefault());
     /* Optionally verify a user's file, read-only, in this isolated directory. */
     if (argc == 2) {
         size_t size = 0, actual_size = 0;

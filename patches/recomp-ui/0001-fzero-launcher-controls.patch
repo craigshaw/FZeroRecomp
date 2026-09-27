@@ -1,15 +1,38 @@
+diff --git a/launcher_imgui.cpp b/launcher_imgui.cpp
+index f7c89f7..4e5fa66 100644
 --- a/launcher_imgui.cpp
 +++ b/launcher_imgui.cpp
-@@ -10,6 +10,8 @@
+@@ -10,6 +10,9 @@
  //   (2) Live resize: immediate mode redraws every frame; a logical-width
  //       breakpoint switches the dashboard between two columns and one column.
  
 +#include "launcher_settings.h"
 +#include "launcher_saves.h"
++#include "save_location.h"
  #include "launcher_backend.h"
  #include "launcher_boot_timing.h"
  #include "launcher_gl.h"
-@@ -1427,13 +1429,21 @@
+@@ -1188,7 +1191,7 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
+         if (disc_verdict) reserve += px(120.0f);          // taller: icon+headline + tracks row
+         // Disc Selection label + combo + spacing, for a multi-image title.
+         if (launcher_model_disc_count(m) > 1) reserve += px(62.0f);
+-        if (m->saves_supported) reserve += px(96.0f);    // compact SAVES row below Change ROM
++        if (m->saves_supported) reserve += px(140.0f);   // SAVE row and folder picker
+         if (m->password_save_path) reserve += px(96.0f); // password-save row (same footprint)
+         if (m->msu1_patch_available) reserve += px(198.0f);  // MSU-1 patch-available sub-block
+                                                               // (title + up-to-3-line wrapped note + 2 stacked buttons)
+@@ -1391,7 +1394,9 @@ void draw_save_row(LauncherModel* m, const LauncherTheme& th) {
+     // exists, "no save yet" when it doesn't, and disable Clear when empty so the
+     // button's effect is always visible.
+     long sz = -1;
+-    if (sp[0]) { FILE* f = fopen(sp, "rb"); if (f) { fseek(f, 0, SEEK_END); sz = ftell(f); fclose(f); } }
++    SDL_PathInfo save_info;
++    if (sp[0] && SDL_GetPathInfo(sp, &save_info) && save_info.type == SDL_PATHTYPE_FILE)
++        sz = (long)save_info.size;
+     const bool has_save = sz >= 0;
+ 
+     const float bw = px(84);
+@@ -1427,13 +1432,49 @@ void draw_save_row(LauncherModel* m, const LauncherTheme& th) {
      if (ImGui::Button("Import", ImVec2(bw, px(30)))) {
          char buf[512];
          if (launcher_pick_file("Import SRAM save", kSramPatterns, 2,
@@ -32,10 +55,38 @@
 +        if (!FZeroClearSave(error, sizeof(error)))
 +            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Cannot clear save", error, nullptr);
 +    }
++    ImGui::EndDisabled();
++    ImGui::Dummy(ImVec2(0, px(5)));
++    const float folder_width = ImGui::GetContentRegionAvail().x - bw * 2 - px(th.spacing_sm) * 2;
++    if (ImGui::BeginChild("save_folder_label", ImVec2(folder_width, px(30)), false,
++                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
++        ImGui::AlignTextToFramePadding();
++        if (!FZeroSaveDirectoryAvailable())
++            ImGui::TextColored(col(th.warn), "Save folder unavailable");
++        else
++            ImGui::TextDisabled("Folder: %s", FZeroSaveIsDefault() ? "Default" : FZeroSaveDirectory());
++        if (ImGui::IsItemHovered())
++            ImGui::SetTooltip("%s", FZeroSaveDirectory());
++    }
++    ImGui::EndChild();
++    ImGui::SameLine(0, px(th.spacing_sm));
++    if (ImGui::Button("Browse##savefolder", ImVec2(bw, px(30)))) {
++        char picked[FZERO_SAVE_PATH_CAPACITY], error[1024];
++        if (launcher_pick_folder("Select F-Zero save folder", picked, sizeof(picked)) &&
++            !FZeroSaveLocationSelect(picked, error, sizeof(error)))
++            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Cannot select save folder", error, nullptr);
++    }
++    ImGui::SameLine(0, px(th.spacing_sm));
++    ImGui::BeginDisabled(FZeroSaveIsDefault());
++    if (ImGui::Button("Default##savefolder", ImVec2(bw, px(30)))) {
++        char error[1024];
++        if (!FZeroSaveLocationSelect("", error, sizeof(error)))
++            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Cannot reset save folder", error, nullptr);
++    }
      ImGui::EndDisabled();
  }
  
-@@ -1935,6 +1945,8 @@
+@@ -1935,6 +1976,8 @@ void pad_mode_selector(LauncherModel* m, const LauncherTheme& th, int p, float w
  // keyboard entry splits into "Keyboard + Mouse" (mouse-aim on) and "Keyboard"
  // (off); otherwise it is the single legacy "Keyboard" entry, byte-for-byte
  // identical to before for every non-mouse game.
@@ -44,7 +95,7 @@
  void draw_source_selectables(LauncherModel* m, int p) {
      const SystemProfile* src_prof = (const SystemProfile*)m->profile;
      const bool psx = src_prof && src_prof->id && !strcmp(src_prof->id, "psx");
-@@ -2167,7 +2179,7 @@
+@@ -2167,7 +2210,7 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
  
      ImGui::SetNextItemWidth(cw);
      if (ImGui::BeginCombo("##src", ui_text(launcher_model_player_src_label(m, p)))) {
@@ -53,7 +104,7 @@
          ImGui::EndCombo();
      }
      ImGui::Dummy(ImVec2(0, px(4)));
-@@ -2839,15 +2851,8 @@
+@@ -2839,15 +2882,8 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
  // row_h band with no_scroll (legacy minimal surface) — exactly the sizing
  // draw_settings used to pick inline, now co-located with its own content.
  void panel_video_draw(LauncherModel* m, const LauncherTheme* th) {
@@ -71,7 +122,7 @@
  }
  
  void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
-@@ -3316,7 +3321,7 @@
+@@ -3316,7 +3352,7 @@ void draw_hotkeys_controls(LauncherModel* m, const LauncherTheme& th) {
      }
  }
  void panel_hotkeys_draw(LauncherModel* m, const LauncherTheme* th) {
@@ -80,7 +131,7 @@
      end_panel();
  }
  
-@@ -3344,7 +3349,7 @@
+@@ -3344,7 +3380,7 @@ void draw_settings(LauncherModel* m, const LauncherTheme& th) {
                                        // universal Fullscreen row joined scale/
                                        // filter/widescreen on the legacy surface)
  
@@ -89,7 +140,7 @@
      const bool deep_audio   = m->has_spu_hq || m->num_languages > 0 || m->num_audio_devices > 0;   /* deadzone moved to controller card */
  
      const LauncherPanel* video_p   = find_composed(prof->panels_settings, "video", m);
-@@ -3696,7 +3701,7 @@
+@@ -3696,7 +3732,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
          row_label("Input source", th);
          ImGui::SetNextItemWidth(px(200));
          if (ImGui::BeginCombo("##csrc", ui_text(launcher_model_player_src_label(m, p)))) {
@@ -98,7 +149,7 @@
              ImGui::EndCombo();
          }
          if (cfg_psx) {
-@@ -3991,6 +3996,11 @@
+@@ -3991,6 +4027,11 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
      // input.cfg): GameInfo.hide_rebind drops the bindings card entirely and the
      // Controller view is source+deadzone only.
      if (m->hide_rebind) return;
@@ -110,7 +161,7 @@
  
      if (begin_panel("cfg_binds", 0)) {
          // Responsive grid: fit as many label+chip columns as the width allows
-@@ -4269,7 +4279,7 @@
+@@ -4269,7 +4310,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
          // A pad-bind console (Genesis) offers a KEY chip AND a GAMEPAD chip per
          // row — the legacy launcher's "Set key" / "Set pad" pair. Otherwise the
          // grid is keyboard-only, exactly as before.

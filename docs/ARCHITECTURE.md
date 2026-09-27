@@ -9,7 +9,7 @@ hardware output through SDL3.
 
 | Component | Responsibility |
 | --- | --- |
-| `src/main.c`, `src/config.c` | ROM verification, paths, audio, input, settings, and the desktop loop |
+| `src/main.c`, `src/config.c`, `src/save_location.c` | ROM verification, paths, audio, input, settings, and the desktop loop |
 | `src/fzero_rtl.c`, `src/fzero_spc_player.c` | Game scheduling and audio integration |
 | `src/fzero_records*`, `src/fzero_save.*` | Per-car records, compatible SRAM extension, Records presentation, and safe save replacement |
 | `src/launcher_settings.*`, `src/launcher_controls.inc` | Launcher settings transfer and F-Zero menu controls |
@@ -220,6 +220,12 @@ a previous valid backup, and replace the save only after closing the temporary
 file successfully. Write failures leave the current save in place and disable
 further attempts for that session. The launcher still imports or clears the
 whole file through its existing backup path.
+
+`save_location.c` resolves the save folder for the host and launcher. The
+default remains `saves/` under the selected data root. A custom absolute folder
+is recorded in local `config.ini` under `[Save]`, separate from the save itself.
+All save operations stage, back up, recover, and replace within the selected
+folder. A missing custom folder does not fall back to the default location.
 
 ## Shaders and UI
 

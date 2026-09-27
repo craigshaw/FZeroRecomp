@@ -204,7 +204,7 @@ const RtlGameInfo kFZeroGameInfo = {
   .draw_ppu_frame = &FZeroDrawPpuFrame,
   /* 2 KB battery SRAM (cart header: ROM+RAM+battery, SRAM size 2 KB). The
    * runner maps it from the header automatically. The host save module
-   * persists it to saves/save.srm with the records extension. */
+   * persists it to the selected save folder with the records extension. */
   .save_name_prefix = "save",
   .tier2_capture = 0,
 };

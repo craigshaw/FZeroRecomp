@@ -1,5 +1,6 @@
 #include "fzero_save.h"
 #include "fzero_records.h"
+#include "save_location.h"
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +11,10 @@ static void CheckFile(const char *path,const uint8_t *expected,size_t length) {
     CHECK(data && size==length && !memcmp(data,expected,size));SDL_free(data);
 }
 int main(void) {
+    SDL_RemovePath("config.ini");
+    SDL_RemovePath("config.ini.save-folder.tmp");
+    char location_error[256];
+    CHECK(FZeroSaveLocationLoad(location_error,sizeof(location_error)) && FZeroSaveIsDefault());
     const char *paths[]={"saves/save.srm","saves/save.srm.bak","saves/save.srm.writing",
         "saves/save.srm.recovery-0","saves/save.srm.recovery-1","saves/save.srm.recovery-2","saves"};
     for(unsigned i=0;i<sizeof(paths)/sizeof(*paths);++i)SDL_RemovePath(paths[i]);
@@ -40,5 +45,28 @@ int main(void) {
     CHECK(SDL_RemovePath(paths[0]));CHECK(SDL_CreateDirectory(paths[0]));
     CHECK(!FZeroSaveLoad(loaded,message,sizeof(message)));
     CHECK(!FZeroSaveWrite(a,message,sizeof(message)));CHECK(SDL_RemovePath(paths[0]));
+    CHECK(FZeroSaveWrite(a,message,sizeof(message)));
+    char *cwd=SDL_GetCurrentDirectory();CHECK(cwd);
+    char selected[FZERO_SAVE_PATH_CAPACITY],custom_save[FZERO_SAVE_PATH_CAPACITY],custom_backup[FZERO_SAVE_PATH_CAPACITY];
+    SDL_snprintf(selected,sizeof(selected),"%s/custom-records",cwd);SDL_free(cwd);
+    CHECK(SDL_CreateDirectory(selected));
+    CHECK(FZeroSaveLocationSelect(selected,location_error,sizeof(location_error)));
+    CHECK(FZeroSaveLocationLoad(location_error,sizeof(location_error)));
+    CHECK(FZeroSavePath(custom_save,sizeof(custom_save),"save.srm"));
+    CHECK(FZeroSavePath(custom_backup,sizeof(custom_backup),"save.srm.bak"));
+    SDL_RemovePath(custom_save);SDL_RemovePath(custom_backup);
+    CHECK(FZeroSaveLoad(loaded,message,sizeof(message)) && !message[0]);
+    CHECK(FZeroSaveWrite(a,message,sizeof(message)));
+    CHECK(FZeroSaveLoad(loaded,message,sizeof(message)) && !memcmp(a,loaded,2048));
+    FZeroRecordsInit(&records);FZeroRecordsInsert(&records,3,2,10000,2000);
+    memcpy(b,a,2048);CHECK(FZeroRecordsEncode(&records,b));
+    CHECK(FZeroSaveWrite(b,message,sizeof(message)));
+    CheckFile(custom_save,b,2048);CheckFile(custom_backup,a,2048);
+    CHECK(SDL_RemovePath(custom_save));CHECK(SDL_RemovePath(custom_backup));
+    CHECK(SDL_RemovePath(selected));
+    CHECK(!FZeroSaveLoad(loaded,message,sizeof(message)) && message[0]);
+    CHECK(!FZeroSaveWrite(a,message,sizeof(message)));
+    CHECK(FZeroSaveLocationSelect("",location_error,sizeof(location_error)));
+    CheckFile(paths[0],a,2048);
     puts("records file replacement, backups, recovery and write failures: passed");return 0;
 }

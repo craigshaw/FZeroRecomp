@@ -60,6 +60,7 @@
 #include "screenshot.h"
 #include "fzero_records_runtime.h"
 #include "fzero_save.h"
+#include "save_location.h"
 
 #if defined(RECOMP_LAUNCHER)
 #include "recomp_launcher.h"   /* recomp_launcher_run_window() ABI */
@@ -453,6 +454,14 @@ int main(int argc, char **argv) {
     FZeroMigrateLegacySave(legacy_save);
 #endif
 
+  char save_location_error[512];
+  if (!FZeroSaveLocationLoad(save_location_error, sizeof(save_location_error))) {
+    fprintf(stderr, "[Save] %s\n", save_location_error);
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Save folder error",
+                             save_location_error, NULL);
+    return 1;
+  }
+
   /* Persisted launcher settings (config.ini [Settings]); missing file keeps
    * the defaults above. Seed keybinds.ini with the host layout on first run
    * and (re)load it so the launcher's Controller page shows current binds. */
@@ -506,7 +515,7 @@ int main(int argc, char **argv) {
     gi.name = "F-Zero";
     gi.region = "(USA)";
     gi.boxart_path = "assets/img/boxart.png";
-    gi.sram_path = "saves/save.srm";
+    gi.sram_path = FZeroSaveFile();
     gi.num_players = 1;
     gi.config_path = "config.ini";  /* hotkey editor target */
     gi.widescreen_supported = 1;

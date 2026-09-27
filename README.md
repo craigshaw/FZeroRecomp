@@ -118,6 +118,11 @@ while preserving your settings, `saves/`, and `screenshots/` folders. Existing
 settings take precedence over the new first-boot defaults. The release includes
 a `.zip.sha256` checksum file for each download.
 
+In the launcher's Save area, select **Browse** beside **Folder** to store
+`save.srm` in another folder. **Default** returns to the existing `saves/`
+folder beside the executable. The choice is stored locally in `config.ini`
+under `[Save]`; preserve that file when updating if you use a custom folder.
+
 To use an existing battery save, select **Import** in the launcher and choose
 your `.srm` or `.sav` file. A confirmation appears when the import succeeds;
 press **Play** to load it. Import creates the saves folder on first use and
@@ -138,6 +143,10 @@ To update, quit the app and replace it with the new download. Keep that data
 folder to preserve your saves. To bring a save from a source build, quit both
 copies and copy `build/saves/save.srm` to `saves/save.srm` in that folder;
 back up an existing save before replacing it.
+
+The launcher's Save area can select another folder for `save.srm`. **Default**
+returns to `~/Library/Application Support/FZeroRecomp/saves/`. The folder choice
+is kept in `~/Library/Application Support/FZeroRecomp/config.ini` under `[Save]`.
 
 ## Build from source
 
@@ -265,9 +274,17 @@ message confirms success or failure. Keep `screenshots/` when updating the game.
 For source builds, keep the executable and its `assets/` folder together in a
 writable directory.
 Settings live beside the executable: `config.ini`, `keybinds.ini`, and `rom.cfg`.
-SRAM is saved to `saves/save.srm` when records change and on normal exit. Close
-the game before renaming a settings file to restore its defaults; leave the
+By default, SRAM is saved to `saves/save.srm` when records change and on normal
+exit. Close the game before renaming a settings file to restore its defaults; leave the
 save file in place.
+
+The launcher can select an existing save folder. Import, Clear, normal writes,
+backups, and recovery files then use that folder. Changing folders does not
+move or delete the old save. Import it into the new folder if needed. If the
+selected folder is unavailable, the game disables saving for that session
+instead of writing to the default folder. For cloud-synced folders, quit the
+game and wait for file sync before playing on another machine. Concurrent or
+offline changes still need manual conflict resolution.
 
 ### Per-car records
 
@@ -301,8 +318,9 @@ full file. On return, the recomp merges records still visible in the original
 table. It cannot recover results that the original game did not retain.
 Clearing a track in the original game does not clear the extra records.
 
-The previous valid save is kept as `saves/save.srm.bak`. Damaged or unrecognised
-data is preserved in a numbered `save.srm.recovery-*` file before repair. A
+The previous valid save is kept as `save.srm.bak` in the selected folder.
+Damaged or unrecognised data is preserved there in a numbered
+`save.srm.recovery-*` file before repair. A
 newer extension version disables saving for that session to protect the file.
 See [the records format](docs/RECORDS_EXTENSION.md) for storage and recovery
 limits.

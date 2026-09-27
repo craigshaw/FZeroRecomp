@@ -31,6 +31,7 @@ add_executable(fzero_recomp
     src/fzero_records_runtime.c
     src/fzero_records_view.c
     src/fzero_save.c
+    src/save_location.c
     src/fzero_rtl.c
     src/fzero_spc_player.c
     src/main.c
@@ -92,7 +93,7 @@ if(BUILD_TESTING)
     target_include_directories(fzero_records_runtime_tests PRIVATE src)
     add_test(NAME fzero_records_runtime COMMAND fzero_records_runtime_tests)
     add_executable(fzero_records_save_tests tests/test_records_save.c
-        src/fzero_records.c src/fzero_save.c)
+        src/fzero_records.c src/fzero_save.c src/save_location.c)
     target_include_directories(fzero_records_save_tests PRIVATE src)
     snesrecomp_target_sdl(fzero_records_save_tests)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/records-save-test-data")
@@ -106,7 +107,8 @@ if(BUILD_TESTING)
     target_include_directories(fzero_records_view_tests PRIVATE src ${SNESRECOMP_RUNNER_INCLUDE_DIRS})
     target_compile_definitions(fzero_records_view_tests PRIVATE SNESRECOMP_REVERSE_DEBUG=0)
     add_test(NAME fzero_records_view COMMAND fzero_records_view_tests)
-    add_executable(fzero_launcher_saves_tests tests/test_launcher_saves.c src/launcher_saves.c)
+    add_executable(fzero_launcher_saves_tests tests/test_launcher_saves.c
+        src/launcher_saves.c src/save_location.c)
     target_include_directories(fzero_launcher_saves_tests PRIVATE src)
     snesrecomp_target_sdl(fzero_launcher_saves_tests)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/launcher-saves-test-data")
@@ -115,7 +117,7 @@ if(BUILD_TESTING)
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/launcher-saves-test-data")
     add_executable(fzero_host_ui_tests
         tests/test_host_ui.c
-        src/config.c src/launcher_settings.c src/runtime_ui.c src/runtime_ui_imgui.cpp
+        src/config.c src/save_location.c src/launcher_settings.c src/runtime_ui.c src/runtime_ui_imgui.cpp
         src/presentation.c
         src/screenshot.c
         src/imgui_impl_sdlrenderer3.cpp
