@@ -1,0 +1,12 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "F-Zero",
+  "wikidata": "Q1198491",
+  "system": "SNES",
+  "type": "recomp",
+  "project": "F-Zero Recomp",
+  "status": "released",
+  "targets": ["Windows", "macOS"],
+  "toolchain": ["snesrecomp", "recomp-ui"],
+  "original": {"region": "USA"}
+}
