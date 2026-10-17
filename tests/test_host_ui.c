@@ -392,13 +392,57 @@ static void CheckScreenshot(FZeroPresentation *video) {
   CHECK(!first[0]);
 }
 
+static void CheckShaderColours(FZeroPresentation *video) {
+  /* Literal flat-colour references for Original, Enhanced, Vivid and B&W.
+   * These catch channel swaps, wrong style uniforms and incorrect grading.
+   * Sample inside each stripe so Enhanced's neighbours have the same RGB.
+   * Allow one output level for floating-point/UNORM rounding across GPUs. */
+  static const Uint32 colours[][4] = {
+    {0x000000, 0x000000, 0x000000, 0x000000},
+    {0xffffff, 0xffffff, 0xffffff, 0xffffff},
+    {0x808080, 0x7f8081, 0x808080, 0x808080},
+    {0x2060a0, 0x145fab, 0x0047a7, 0x575757},
+    {0xc08040, 0xd08438, 0xcb5900, 0x898989},
+    {0xff0000, 0xff0000, 0xff0000, 0x363636},
+    {0x00ff00, 0x00ff00, 0x00ff00, 0xb6b6b6},
+    {0x0000ff, 0x0000ff, 0x0000ff, 0x121212},
+  };
+  static Uint32 world[224][256], hud[224][256];
+  for (int y = 0; y < 224; ++y) for (int x = 0; x < 256; ++x)
+    world[y][x] = colours[x / 32][0];
+  CHECK(SDL_SetTextureScaleMode(FZeroPresentationTexture(video), SDL_SCALEMODE_NEAREST));
+  CHECK(FZeroPresentationUpload(video, world, hud));
+  for (int style = 0; style < 4; ++style) {
+    FZeroPresentationSetStyle(video, (FZeroVisualStyle)style);
+    CHECK(FZeroPresentationDraw(video));
+    SDL_Surface *raw = FZeroPresentationReadComposite(video); CHECK(raw);
+    SDL_Surface *pixels = SDL_ConvertSurface(raw, SDL_PIXELFORMAT_ARGB8888); CHECK(pixels);
+    Uint32 *row = (Uint32 *)((Uint8 *)pixels->pixels + 112 * pixels->pitch);
+    for (int stripe = 0; stripe < 8; ++stripe) {
+      Uint32 expected = colours[stripe][FZeroPresentationHasShader(video) ? style : 0];
+      for (int shift = 0; shift <= 16; shift += 8) {
+        int actual = (row[stripe * 32 + 16] >> shift) & 255;
+        int want = (expected >> shift) & 255;
+        if (abs(actual - want) > (style ? 1 : 0))
+          fprintf(stderr, "style %d stripe %d channel %d: %d != %d\n",
+                  style, stripe, shift, actual, want);
+        CHECK(abs(actual - want) <= (style ? 1 : 0));
+      }
+    }
+    SDL_DestroySurface(pixels); SDL_DestroySurface(raw);
+  }
+  FZeroPresentationSetStyle(video, FZERO_VISUAL_ORIGINAL);
+}
+
 static void TestPresentation(void) {
   SDL_Window *window = SDL_CreateWindow("Synthetic presentation", 768, 672, getenv("FZERO_TEST_GPU") ? 0 : SDL_WINDOW_HIDDEN);
   CHECK(window);
   FZeroPresentation *video = FZeroPresentationCreate(window, false); CHECK(video);
   if (getenv("FZERO_TEST_GPU")) CHECK(FZeroPresentationHasShader(video));
+  if (getenv("FZERO_TEST_FALLBACK")) CHECK(!FZeroPresentationHasShader(video));
   SDL_Renderer *renderer = FZeroPresentationRenderer(video);
   SettleWindow(window, renderer);
+  CheckShaderColours(video);
   SDL_Texture *texture = FZeroPresentationTexture(video);
   static Uint32 world[224][256], hud[224][256], expected[224][256];
   for (int y = 0; y < 224; ++y) for (int x = 0; x < 256; ++x) {

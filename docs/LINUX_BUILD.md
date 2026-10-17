@@ -10,10 +10,11 @@ writes were checked, and records and settings survived a relaunch.
 Portability to other distributions still needs validation.
 There is no packaged Linux release yet.
 
-Linux currently uses SDL scene and HUD composition with Original colours.
-The Enhanced, Vivid, and Black & White shader path is implemented for macOS
-and Windows only. Installing a Vulkan driver does not enable those filters
-on Linux. Original, 16:9, and 32:9 remain available.
+Linux builds now use SDL's Vulkan GPU renderer for Original, Enhanced, Vivid,
+and Black & White, with protected HUD colours in Original, 16:9, and 32:9.
+The build embeds SPIR-V compiled from the same HLSL source as Windows.
+If the GPU or shader setup fails, the host logs the reason and uses SDL
+composition with Original colours. The saved filter choice is retained.
 
 ## Install build prerequisites
 
@@ -77,6 +78,34 @@ cmake --install .tools/build/sdl3-3.4.16
 Reduce the parallel job count on machines with less memory. In SDL's configure
 summary, check that the required video and audio backends are enabled.
 
+## Install the shader compiler
+
+The default Linux build requires DXC with SPIR-V support. The tested x86_64
+compiler is Microsoft's [DXC 1.9.2609 release](https://github.com/microsoft/DirectXShaderCompiler/releases/tag/v1.9.2609).
+Install it locally with its libraries and verify the published archive digest:
+
+```sh
+mkdir -p .tools/downloads .tools/dxc-1.9.2609
+curl --fail --location --retry 3 \
+  --output .tools/downloads/linux_dxc_2026_09_28.x86_x64.tar.gz \
+  https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/linux_dxc_2026_09_28.x86_x64.tar.gz
+printf '%s\n' \
+  '96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1  .tools/downloads/linux_dxc_2026_09_28.x86_x64.tar.gz' \
+  | sha256sum --check -
+```
+
+Continue only if the checksum reports `OK`:
+
+```sh
+tar -xzf .tools/downloads/linux_dxc_2026_09_28.x86_x64.tar.gz \
+  -C .tools/dxc-1.9.2609
+.tools/dxc-1.9.2609/bin/dxc --version
+```
+
+CMake compiles `src/shaders/scene.hlsl` to SPIR-V 1.0 and generates an embedded
+header under `build/shaders/`. The game needs neither DXC nor a loose shader
+file at runtime. Keep these generated files in the build directory.
+
 ## Generate and build the game
 
 Use the pinned dependencies and the headerless USA ROM described in the
@@ -98,7 +127,8 @@ After checking it, generate and build:
 python3 snesrecomp/tools/v2_sync_funcs_h.py --cfg-dir config --out config/funcs.h
 python3 snesrecomp/tools/v2_emit.py --rom "$FZERO_ROM" \
   --cfg-dir config --out-dir generated --cfg-roots
-CMAKE_PREFIX_PATH="$PWD/.tools/sdl3-3.4.16" sh build.sh
+PATH="$PWD/.tools/dxc-1.9.2609/bin:$PATH" \
+  CMAKE_PREFIX_PATH="$PWD/.tools/sdl3-3.4.16" sh build.sh
 ctest --test-dir build --output-on-failure
 ldd build/fzero_recomp
 ./build/fzero_recomp "$FZERO_ROM"
@@ -106,9 +136,20 @@ ldd build/fzero_recomp
 
 Generation produces 678 exact AOT variants and 9 interpreter variants at the
 current dependency pin. `ldd` must resolve `libSDL3.so.0` to the local `.tools`
-installation and show no missing libraries. CMake records that SDL path in
-`build/CMakeCache.txt`; later source edits can use `sh build.sh` directly.
-If the project is moved, reconfigure it with the new SDL path.
+installation and show no missing libraries. CMake records the SDL and DXC
+paths in `build/CMakeCache.txt`; later source edits can use `sh build.sh`
+directly. You can also set DXC explicitly with `-DFZERO_DXC=/path/to/dxc`.
+If the project is moved, reconfigure it with the new SDL and DXC paths.
+
+On a configured checkout, a build without Vulkan filters can use:
+
+```sh
+cmake -S . -B build -DFZERO_LINUX_VULKAN=OFF
+sh build.sh
+```
+
+This build needs no DXC and retains Original colours and all three aspect
+modes. Set `FZERO_LINUX_VULKAN=ON` to restore Vulkan filters.
 
 Run `./build/fzero_recomp` without a ROM argument to open the launcher.
 Keep `build/assets/` beside the executable. Source builds store settings and
@@ -141,7 +182,8 @@ run is not a performance baseline. Use the existing
 
 ## Native Linux timing baseline
 
-On 17 October 2026, four runs of the same 3,600-frame attract sequence used
+Before Vulkan filters were added, four runs on 17 October 2026 of the same
+3,600-frame attract sequence used
 the Release build, SDL 3.4.16, Wayland, and SDL's `opengl` renderer on the
 machine above. The game opened the Intel GPU's `/dev/dri/renderD128` device.
 SDL reported a 60 Hz display. Each run started with separate, empty saves and
@@ -173,7 +215,9 @@ windowed VSync run averaged 58.08 FPS. These results do not establish behaviour
 on AMD graphics, other distributions, X11, or Wine/Proton. Linux custom race
 filters were not active.
 
-To repeat a comparison, copy the executable and its `assets/` folder into a
+To repeat the OpenGL baseline, build with `FZERO_LINUX_VULKAN=OFF`.
+With the default build, the same method measures Vulkan; check the renderer
+and GPU backend in the log. Copy the executable and its `assets/` folder into a
 separate writable directory. Put a `config.ini` beside that copy:
 
 ```ini
@@ -206,6 +250,9 @@ select Keyboard or Gamepad in the launcher before a manual play test.
 
 ## Manual gameplay check
 
+This manual check preceded Vulkan filter support and used Original colours
+with OpenGL.
+
 On the same machine, the owner tested the launcher, gameplay, audio, gamepad
 controls, and display settings with an Xbox One S Controller. The checklist
 included Original, 16:9, 32:9, fullscreen, and pause/resume through the settings
@@ -227,3 +274,59 @@ preserved after the first exit, and the save checksums remained valid.
 Full keyboard gameplay remains untested. This play test used changing settings,
 menu pauses, and screenshots; use the separate attract-sequence measurements
 above for performance comparisons.
+
+## Vulkan validation
+
+The synthetic GPU test uses real Vulkan rendering and readback. It checks
+fixed RGB references for all four styles, exact protected HUD colours,
+switches between all three aspect modes, nearest and linear sampling,
+window resizing, overlay state restoration, screenshots, and bloom bounds.
+Run it from an isolated test directory with the desktop session available:
+
+```sh
+mkdir -p build/linux-gpu-test
+(cd build/linux-gpu-test && \
+  SDL_VIDEODRIVER=wayland SDL_AUDIODRIVER=dummy FZERO_TEST_GPU=1 \
+  ../fzero_host_ui_tests)
+```
+
+The log must report `renderer=gpu`, `GPU backend: vulkan`, and
+`host UI tests: passed`. The ordinary CTest run uses SDL's dummy video driver
+and does not replace this GPU check.
+
+To test runtime fallback with the same binary, use a deliberately unavailable
+GPU driver name and require the fallback in the test:
+
+```sh
+mkdir -p build/linux-fallback-test
+(cd build/linux-fallback-test && \
+  SDL_VIDEODRIVER=wayland SDL_AUDIODRIVER=dummy \
+  SDL_GPU_DRIVER=fzero-unavailable-test FZERO_TEST_FALLBACK=1 \
+  ../fzero_host_ui_tests)
+```
+
+This check must report the unavailable GPU driver, use SDL composition without
+a custom shader, and pass. These commands were verified on the Intel GPU above.
+Windows DXIL compilation was also checked with the shared HLSL. Windows and
+macOS runtime tests require their own machines.
+
+Four ROM-based Vulkan runs each completed 1,800 game frames and exited
+normally. Settings and saves were isolated, audio was enabled but muted, and
+input was disabled:
+
+| Style | Aspect | Output | RGB readback result |
+| --- | --- | --- | --- |
+| Original | Original | Window | 1,798 full frames matched |
+| Enhanced | 16:9 | Window | 1,797 protected-HUD frames matched |
+| Vivid | 32:9 | Fullscreen | 1,797 protected-HUD frames matched |
+| Black & White | 16:9 | Fullscreen | 1,796 protected-HUD frames matched |
+
+A separate 3,600-frame Enhanced run at 1920 x 1080 fullscreen, 16:9, with
+VSync on and readback off completed in 60.39 seconds. Complete timing intervals
+after the first averaged 59.93 presentations/s and 60.10 game steps/s.
+The slowest such interval averaged 59.37 FPS. The raster stage averaged
+8.42 ms per presentation, upload 0.39 ms, and present 7.34 ms. These are host
+wall times on this Intel machine, not GPU execution times or AMD/Wine results.
+
+The build with `FZERO_LINUX_VULKAN=OFF` also passed the presentation tests.
+There has not yet been a manual play test with Vulkan filters enabled.

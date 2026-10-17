@@ -1,13 +1,30 @@
-// Windows equivalent of the Metal scene pass in presentation.c.
+// Windows and Linux equivalent of the Metal scene pass in presentation.c.
 // Keep colour grading, sampling bounds, and style values in sync with it.
 // SDL's shipped DXIL vertex shader uses TEXCOORD0 for colour and TEXCOORD1
 // for UV (its HLSL source names are remapped during shader cross-compilation).
 // The drawn texture is sampler slot 0.
+#ifdef FZERO_SPIRV
+// SDL Vulkan uses a combined sampler at set 2/binding 0.
+[[vk::combinedImageSampler]] [[vk::binding(0, 2)]]
+#endif
 Texture2D<float4> tex : register(t0, space2);
+#ifdef FZERO_SPIRV
+[[vk::combinedImageSampler]] [[vk::binding(0, 2)]]
+#endif
 SamplerState smp : register(s0, space2);
 cbuffer SceneParams : register(b0, space3) { float4 params; };
 
-struct In { float4 color : TEXCOORD0; float2 uv : TEXCOORD1; };
+struct In {
+#ifdef FZERO_SPIRV
+    [[vk::location(0)]]
+#endif
+    float4 color : TEXCOORD0;
+#ifdef FZERO_SPIRV
+    // Keep UV at location 1 even when DXC removes the unused colour input.
+    [[vk::location(1)]]
+#endif
+    float2 uv : TEXCOORD1;
+};
 
 float4 scene(In input) : SV_Target0 {
     // SNES output is already colour-correct. Ignore its unused alpha byte.

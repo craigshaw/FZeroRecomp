@@ -31,7 +31,8 @@ records to F-Zero (USA) on macOS (Apple Silicon) and Windows (x64).
   markers highlighting your new records. Existing records are imported,
   and saves remain compatible with the original game.
 
-Linux source builds have passed initial automated checks on Ubuntu 24.04.
+Linux source builds support Vulkan visual filters and have passed automated
+checks on Ubuntu 24.04.
 See the [Linux build instructions and validation limits](docs/LINUX_BUILD.md).
 There is no packaged Linux release yet.
 
@@ -152,9 +153,9 @@ is kept in `~/Library/Application Support/FZeroRecomp/config.ini` under `[Save]`
 
 ## Build from source
 
-Visual filters use SDL 3.4 or newer's GPU renderer: Metal on macOS, or
-Direct3D 12 with Shader Model 6.0 on Windows. Other renderers retain Original
-colours and support widescreen.
+Visual filters use SDL 3.4 or newer's GPU renderer: Metal on macOS,
+Direct3D 12 with Shader Model 6.0 on Windows, or Vulkan on Linux. Other
+renderers retain Original colours and support widescreen.
 
 Requirements: Git, Python 3.11+, CMake 3.20+, Ninja, C11/C++17 compilers, SDL3
 development files, and OpenGL development files. On macOS, Apple's Command Line

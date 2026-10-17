@@ -229,20 +229,31 @@ folder. A missing custom folder does not fall back to the default location.
 
 ## Shaders and UI
 
-With SDL 3.4+, the GPU renderer runs a Metal scene shader on macOS or an
-embedded DXIL scene shader on Windows, then draws the protected HUD with its
+With SDL 3.4+, the GPU renderer runs a Metal scene shader on macOS, an
+embedded DXIL scene shader on Windows, or an embedded SPIR-V scene shader
+through Vulkan on Linux, then draws the protected HUD with its
 original RGB. Original preserves colours; Enhanced
 adds colour grading and bloom; Vivid adds saturation and contrast; Black & White
 uses weighted greyscale. Other renderers use SDL composition with effects disabled.
 The saved style remains available for a later supported run.
 
-The Windows HLSL equivalent lives in `src/shaders/scene.hlsl`; CMake uses the
-Windows SDK's DXC to compile and embed it in both the game and presentation
-tests. Keep its equations and style values aligned with the Metal source in
+The shared Windows/Linux HLSL lives in `src/shaders/scene.hlsl`; CMake uses
+DXC to compile and embed it in both the game and presentation tests. Windows
+uses the SDK's DXC; Linux uses a compiler with SPIR-V support. Neither path
+needs a shader compiler or loose shader files at runtime. Keep its equations
+and style values aligned with the Metal source in
 `src/presentation.c`. SDL's shipped DXIL vertex shader exposes colour as
 `TEXCOORD0` and UV as `TEXCOORD1` (the original HLSL names are remapped by SDL's
 shader build). A resource-compatible shader can still fail at pipeline creation
 if these semantics do not match, so actual GPU readback is required.
+
+For Vulkan, the texture and sampler share descriptor set 2, binding 0 as a
+combined image sampler; the uniform buffer is at set 3, binding 0. Explicit
+input locations keep UV at location 1 even if DXC removes the unused colour
+input at location 0. The shader targets SPIR-V 1.0. Linux builds enable this
+path by default and require SDL 3.4+ and DXC. `FZERO_LINUX_VULKAN=OFF` builds
+the Original-colour SDL path without DXC. A runtime GPU or shader setup failure
+also falls back to SDL composition and logs the reason.
 
 GPU tests use visible windows and present after a synchronised resize before
 reading the window image. SDL's GPU backbuffer adopts the swapchain dimensions
