@@ -271,6 +271,14 @@ the packaged Mac app uses `~/Library/Application Support/FZeroRecomp/` and
 loads assets from its bundle. Save migration in source builds copies a legacy
 save only when the destination is absent and retains the original.
 
+The Linux test package also uses executable-relative storage. Its CMake
+`FZeroRuntime` install component sets the executable's runtime library path to
+`$ORIGIN/lib`; source builds retain the configured SDL path. The package tool
+copies SDL, named runtime assets and licence notices into a fresh directory.
+It records ELF dependencies, required symbol versions and file hashes, then
+checks relocation and ROM rejection before creating the archive. System
+graphics drivers, glibc and desktop/audio libraries are not bundled.
+
 The launcher's Display menu uses the same seven controls and order as the
 in-game menu. `launcher_settings.c` transfers standard ABI fields and stages
 Aspect Ratio, Race Filter and FPS Readout. The pinned launcher ABI has only a

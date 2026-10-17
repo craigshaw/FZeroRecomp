@@ -34,7 +34,7 @@ records to F-Zero (USA) on macOS (Apple Silicon) and Windows (x64).
 Linux source builds support Vulkan visual filters and have passed automated
 checks on Ubuntu 24.04.
 See the [Linux build instructions and validation limits](docs/LINUX_BUILD.md).
-There is no packaged Linux release yet.
+A Linux test package can be built from source. No Linux release is published yet.
 
 ### Widescreen
 

@@ -8,7 +8,8 @@ this machine, as described below. A manual play test with an Xbox One S
 Controller found no gameplay, audio, or settings issues. Screenshots and save
 writes were checked, and records and settings survived a relaunch.
 Portability to other distributions still needs validation.
-There is no packaged Linux release yet.
+A test archive can be built with the package tool below. No Linux release is
+published yet.
 
 Linux builds now use SDL's Vulkan GPU renderer for Original, Enhanced, Vivid,
 and Black & White, with protected HUD colours in Original, 16:9, and 32:9.
@@ -156,6 +157,78 @@ Keep `build/assets/` beside the executable. Source builds store settings and
 the default saves beside the executable, as described in the main README.
 This build directory depends on the local SDL installation and is not a
 portable release package.
+
+## Build a Linux test package
+
+The package tool produces an x86_64 `.tar.gz` with SDL, launcher assets,
+licence notices, a readme, build metadata and a separate SHA-256 checksum.
+It copies named runtime files into a fresh directory. It does not copy the
+build directory, ROM, generated game source, settings, saves or screenshots.
+DXC and loose shaders are not required at runtime.
+
+After a successful Release build with Vulkan enabled, run:
+
+```sh
+sh build.sh
+python3 tools/package_linux.py --version 0.5.0-linux-test.1 \
+  --sdl-prefix .tools/sdl3-3.4.16 --source-revision working-tree
+```
+
+Use the actual source revision when preparing a release candidate. A WIP
+label records that the archive came from a working tree; the tool does not
+verify that label. `BuildInfo.json` records the executable, SDL, assets and
+shader hashes. Do not treat a WIP label as a reproducible source revision.
+The default output is `build-release/v0.5.0-linux-test.1-linux-x64/`.
+`--output` selects another new directory. Existing output directories are
+refused, so select a new test version or output path for later attempts.
+
+The tool runs CTest and installs only the `FZeroRuntime` component. The
+installed executable uses `$ORIGIN/lib` to find its bundled SDL, with no
+checkout path or `LD_LIBRARY_PATH` requirement. A relocation test runs a copy
+from a path containing spaces with a separate working directory. It checks
+library resolution, wrong-ROM rejection and preservation of the saved ROM
+path. Any failure stops archive creation.
+
+Extract the archive into a writable folder and run `./fzero_recomp` from its
+`F-Zero Recomp` directory. Keep `assets/` and `lib/` beside the executable.
+Settings remain in `config.ini`, `keybinds.ini` and `rom.cfg`; the default save
+is `saves/save.srm`, and captures go to `screenshots/`. A custom save folder
+selected in the launcher remains recorded in `config.ini`. Quit and back up
+these personal files before replacing program files during an update.
+
+The Ubuntu 24.04 build requires glibc 2.38 or newer and a libstdc++ that
+provides `GLIBCXX_3.4.29`. The package records the actual required symbol
+versions instead of assuming that the build distribution defines the minimum.
+It uses the system's OpenGL, Vulkan loader and GPU driver, Wayland or X11,
+and audio libraries. On Ubuntu these include `libstdc++6`, `libgl1`,
+`libvulkan1`, `libwayland-client0`, `libxkbcommon0`, `libasound2t64` and
+`libpulse0`, plus the driver for the GPU. `zenity` supplies native file dialogs.
+Most desktop installations already provide these libraries. SDL and its
+development headers do not need to be installed separately.
+
+This is a relocatable test archive for compatible desktop systems. Other
+distributions and older glibc versions need separate validation. Bundling
+graphics drivers or glibc is outside this package's scope.
+
+To check an extracted package without a ROM:
+
+```sh
+python3 tests/test_package_linux.py "/path/to/extracted/F-Zero Recomp"
+```
+
+Before publishing source or a package, run
+`python3 tools/check_publication.py` and review the archive contents and
+checksum. Local package creation does not publish a release.
+
+The first test archive passed all 11 CTest tests, checksum and payload-hash
+checks, relocation from a path with spaces, bundled SDL resolution, wrong-ROM
+rejection and ROM-cache preservation. The tool also refused an existing output
+directory without changing its archive. An extracted copy started the Vulkan
+renderer with SDL loaded from its own `lib/` directory. With the desktop
+unlocked, an Enhanced 16:9 run completed 1,800 game frames in 30.62 seconds
+and matched 1,798 protected-HUD readback frames. Windowed and fullscreen
+timing runs also passed, as described below. An earlier attempt made while
+the desktop was locked was stopped and excluded from these results.
 
 ## Initial validation environment
 
@@ -330,3 +403,84 @@ wall times on this Intel machine, not GPU execution times or AMD/Wine results.
 
 The build with `FZERO_LINUX_VULKAN=OFF` also passed the presentation tests.
 There has not yet been a manual play test with Vulkan filters enabled.
+
+## Native package and Wine comparison
+
+On 17 October 2026, the extracted Linux test archive and the official
+[Windows 0.5.0 release](https://github.com/craigshaw/FZeroRecomp/releases/tag/v0.5.0)
+were tested on the same Ubuntu/Intel machine described above. The Windows ZIP
+matched its published SHA-256:
+`63120036e34cd3b329c91f6df1d594f3b9313b7a58c495245016f63e35d2de1a`.
+Its build metadata records source revision
+`ada75d85a2074ca9e07d7660c29473906673141a`. Both packages use SDL 3.4.16.
+The native archive was built from the working tree with Linux Vulkan support;
+these are different platform builds, not a comparison of identical binaries.
+
+Wine was Ubuntu's `9.0~repack-4build3`, using `/usr/lib/wine/wine64` and a fresh
+64-bit prefix. It loaded `winex11.drv` and selected SDL's `direct3d` renderer
+with no custom scene shader. Native used Wayland and the Vulkan GPU renderer.
+This Wine result covers Original colours through the fallback. It does not
+validate D3D12 filters or Proton.
+
+Each run used a fresh program copy and separate settings and saves. Settings
+matched: 16:9, Original colours, nearest sampling, VSync on, audio enabled at
+48 kHz with volume zero, input disabled, and no FPS overlay or readback.
+Windowed output was 1194 x 672; fullscreen was 1920 x 1080 on the reported
+60 Hz display. Each run completed 3,600 game frames and exited normally.
+The native runs took 60.36 to 60.46 seconds; Wine took 61.27 to 61.65 seconds,
+including process startup. The averages below exclude the first complete
+120-presentation interval from each log.
+
+| Build and output | Presentations/s | Game steps/s | Raster ms | Upload ms | Present ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Native, window | 59.99 | 60.04 | 6.96 | 0.41 | 7.50 |
+| Native, fullscreen | 59.93 | 60.09 | 6.81 | 0.37 | 9.03 |
+| Wine, window | 60.01 | 60.03 | 9.39 | 1.99 | <0.01 |
+| Wine, fullscreen | 60.03 | 60.10 | 8.03 | 5.70 | <0.01 |
+
+These are single runs on an active desktop. The slowest later timing interval
+was 59.10 FPS for native windowed output and 58.38 FPS for Wine windowed
+output. Host-call times do not measure GPU execution. Under Wine, waits can
+appear in uploads and the frame limiter even when the present call is short.
+Do not infer GPU cost from the present column alone.
+
+All four final 2,048-byte saves were identical. Packaged native settings and
+saves stayed beside each extracted executable, even when it was launched
+from another working directory. The base package and archive remained free
+of settings, saves and ROM data.
+
+A separate Wine readback run completed 1,800 game frames in 31.86 seconds
+and matched 1,799 full RGB frames with Original colours. The packaged native
+Enhanced readback result is recorded in the packaging section. Readback runs
+were excluded from the timing table. No new manual gameplay, controller or
+audible sound check was performed for either package in this comparison.
+
+These checks did not reproduce the sustained 25 FPS report. They do not
+establish behaviour on AMD graphics or Bazzite, or show that bundling SDL
+fixes the reported problem. For that report, collect the source/release
+identity, SDL version, actual renderer and driver, desktop session, output
+dimensions, and matched window/fullscreen frame-timing logs with VSync on and
+off. The earlier OpenGL baseline gives an additional native comparison.
+
+To repeat the Wine check, install `wine` and `wine64`, extract the official
+Windows ZIP into separate writable folders, and use the same `config.ini`
+shown in the native timing section. Set up a new prefix once, then run one
+case at a time from its program folder:
+
+```sh
+export WINEPREFIX="/absolute/path/to/isolated-wine-prefix"
+export WINEARCH=win64
+export WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d'
+/usr/lib/wine/wine64 wineboot.exe --init
+/usr/lib/wine/wineserver64 -w
+SNESRECOMP_FRAME_TIMING=1 SNESRECOMP_MAX_FRAMES=3600 SNESRECOMP_VSYNC=1 \
+  /usr/lib/wine/wine64 ./fzero_recomp.exe \
+  'Z:\absolute\path\to\F-Zero (USA).sfc' > timing.log 2>&1
+```
+
+The loader path above is for Ubuntu's Wine package. These overrides keep
+optional .NET/HTML components and desktop menu integration out of the isolated
+test prefix. Its initial setup logged missing 32-bit helper and OLE service
+messages; the tested 64-bit game still completed normally. Keep the desktop
+unlocked and the game visible during graphical tests. Do not include readback
+validation in timing runs.

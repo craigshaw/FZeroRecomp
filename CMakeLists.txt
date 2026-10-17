@@ -71,6 +71,14 @@ if(NOT MSVC)
 endif()
 target_link_libraries(fzero_recomp PRIVATE ${SNESRECOMP_RUNNER_LIBRARIES})
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Keep source builds on their configured SDL path. Only the installed copy
+    # loads the SDL library bundled by tools/package_linux.py.
+    set_target_properties(fzero_recomp PROPERTIES INSTALL_RPATH "$ORIGIN/lib"
+        INSTALL_RPATH_USE_LINK_PATH FALSE)
+    install(TARGETS fzero_recomp RUNTIME DESTINATION . COMPONENT FZeroRuntime)
+endif()
+
 option(FZERO_MACOS_APP "Use per-user storage for the packaged Mac app" OFF)
 if(FZERO_MACOS_APP)
     if(NOT APPLE)
