@@ -35,6 +35,6 @@ __pycache__/
 *.mmo
 tier2_*.json
 
-# Windows dependency caches.
+# Local dependency caches.
 /.tools/
 /vcpkg_installed/

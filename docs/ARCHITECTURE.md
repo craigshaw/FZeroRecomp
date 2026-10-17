@@ -229,20 +229,31 @@ folder. A missing custom folder does not fall back to the default location.
 
 ## Shaders and UI
 
-With SDL 3.4+, the GPU renderer runs a Metal scene shader on macOS or an
-embedded DXIL scene shader on Windows, then draws the protected HUD with its
+With SDL 3.4+, the GPU renderer runs a Metal scene shader on macOS, an
+embedded DXIL scene shader on Windows, or an embedded SPIR-V scene shader
+through Vulkan on Linux, then draws the protected HUD with its
 original RGB. Original preserves colours; Enhanced
 adds colour grading and bloom; Vivid adds saturation and contrast; Black & White
 uses weighted greyscale. Other renderers use SDL composition with effects disabled.
 The saved style remains available for a later supported run.
 
-The Windows HLSL equivalent lives in `src/shaders/scene.hlsl`; CMake uses the
-Windows SDK's DXC to compile and embed it in both the game and presentation
-tests. Keep its equations and style values aligned with the Metal source in
+The shared Windows/Linux HLSL lives in `src/shaders/scene.hlsl`; CMake uses
+DXC to compile and embed it in both the game and presentation tests. Windows
+uses the SDK's DXC; Linux uses a compiler with SPIR-V support. Neither path
+needs a shader compiler or loose shader files at runtime. Keep its equations
+and style values aligned with the Metal source in
 `src/presentation.c`. SDL's shipped DXIL vertex shader exposes colour as
 `TEXCOORD0` and UV as `TEXCOORD1` (the original HLSL names are remapped by SDL's
 shader build). A resource-compatible shader can still fail at pipeline creation
 if these semantics do not match, so actual GPU readback is required.
+
+For Vulkan, the texture and sampler share descriptor set 2, binding 0 as a
+combined image sampler; the uniform buffer is at set 3, binding 0. Explicit
+input locations keep UV at location 1 even if DXC removes the unused colour
+input at location 0. The shader targets SPIR-V 1.0. Linux builds enable this
+path by default and require SDL 3.4+ and DXC. `FZERO_LINUX_VULKAN=OFF` builds
+the Original-colour SDL path without DXC. A runtime GPU or shader setup failure
+also falls back to SDL composition and logs the reason.
 
 GPU tests use visible windows and present after a synchronised resize before
 reading the window image. SDL's GPU backbuffer adopts the swapchain dimensions
@@ -259,6 +270,20 @@ runtime menu share settings. Source builds use executable-relative storage;
 the packaged Mac app uses `~/Library/Application Support/FZeroRecomp/` and
 loads assets from its bundle. Save migration in source builds copies a legacy
 save only when the destination is absent and retains the original.
+
+The host owns SDL until process exit. It asks the launcher to preserve SDL
+when it destroys its window and GL context, then initialises the game's
+required subsystems. This avoids recreating libdecor's GTK decoration plugin
+on Wayland, which warns if GTK has already been initialised. An exit handler
+calls `SDL_Quit` after normal shutdown, launcher cancellation, or startup failure.
+
+The Linux test package also uses executable-relative storage. Its CMake
+`FZeroRuntime` install component sets the executable's runtime library path to
+`$ORIGIN/lib`; source builds retain the configured SDL path. The package tool
+copies SDL, named runtime assets and licence notices into a fresh directory.
+It records ELF dependencies, required symbol versions and file hashes, then
+checks relocation and ROM rejection before creating the archive. System
+graphics drivers, glibc and desktop/audio libraries are not bundled.
 
 The launcher's Display menu uses the same seven controls and order as the
 in-game menu. `launcher_settings.c` transfers standard ABI fields and stages
@@ -285,7 +310,7 @@ Use isolated executable-relative settings and saves for comparisons.
 
 | Variable | Purpose |
 | --- | --- |
-| `SNESRECOMP_VALIDATE_PRESENTATION=1` | GPU readback comparison; requires the shader path and exits on a mismatch |
+| `SNESRECOMP_VALIDATE_PRESENTATION=1` | GPU readback comparison; exits on a mismatch |
 | `SNESRECOMP_HUD_DIAGNOSTIC=1` | Greyscale scene with coloured protected pixels; requires the shader path |
 | `SNESRECOMP_PRESENTATION=legacy` | Compare with the older single-texture native presentation |
 | `SNESRECOMP_FRAME_TIMING=1` | Log output size, display refresh, VSync, presentation and simulation rates, and average host stage times every 120 presentations |
@@ -315,3 +340,33 @@ Remove-Item Env:SNESRECOMP_VSYNC, Env:SNESRECOMP_FRAME_TIMING
 These overrides last only in that shell and do not change saved settings.
 The no-VSync comparison can tear. It distinguishes presentation waits from
 scene rendering cost without changing game speed or the selected filter.
+
+### Linux desktop checks
+
+CTest uses dummy video for the host UI tests. To check Vulkan on an active
+Wayland desktop, run the same tests with real GPU readback in a separate
+working directory:
+
+```sh
+mkdir -p build/linux-gpu-test
+(cd build/linux-gpu-test && \
+  SDL_VIDEODRIVER=wayland SDL_AUDIODRIVER=dummy FZERO_TEST_GPU=1 \
+  ../fzero_host_ui_tests)
+```
+
+The log must report `renderer=gpu`, `GPU backend: vulkan`, and
+`host UI tests: passed`. This checks all four styles, three aspect modes,
+protected HUD colours, sampling, resizing, overlays, screenshots, and bloom.
+To check fallback, use another test directory and replace `FZERO_TEST_GPU=1`
+with `SDL_GPU_DRIVER=fzero-unavailable-test FZERO_TEST_FALLBACK=1`.
+
+The launcher lifecycle check needs your ROM and an active desktop:
+
+```sh
+SDL_VIDEODRIVER=wayland python3 tests/test_launcher_lifecycle.py \
+  build/fzero_recomp "/path/to/F-Zero (USA).sfc"
+```
+
+It checks Play with 30 frame readbacks, cancellation, and an intentional audio
+startup failure. GTK warnings are fatal; settings and saves use a temporary
+directory. These desktop checks are separate from CTest.

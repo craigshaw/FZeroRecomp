@@ -71,6 +71,14 @@ if(NOT MSVC)
 endif()
 target_link_libraries(fzero_recomp PRIVATE ${SNESRECOMP_RUNNER_LIBRARIES})
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Keep source builds on their configured SDL path. Only the installed copy
+    # loads the SDL library bundled by tools/package_linux.py.
+    set_target_properties(fzero_recomp PROPERTIES INSTALL_RPATH "$ORIGIN/lib"
+        INSTALL_RPATH_USE_LINK_PATH FALSE)
+    install(TARGETS fzero_recomp RUNTIME DESTINATION . COMPONENT FZeroRuntime)
+endif()
+
 option(FZERO_MACOS_APP "Use per-user storage for the packaged Mac app" OFF)
 if(FZERO_MACOS_APP)
     if(NOT APPLE)
@@ -82,6 +90,10 @@ endif()
 include(CTest)
 if(BUILD_TESTING)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME fzero_linux_build
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_build_linux.py")
+    endif()
     add_executable(fzero_game_clock_tests tests/test_game_clock.c)
     target_include_directories(fzero_game_clock_tests PRIVATE src)
     add_test(NAME fzero_game_clock COMMAND fzero_game_clock_tests)

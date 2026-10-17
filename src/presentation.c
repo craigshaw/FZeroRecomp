@@ -4,6 +4,8 @@
 #include <string.h>
 #ifdef _WIN32
 #include "scene_dxil.h"
+#elif defined(FZERO_VULKAN_SHADERS)
+#include "scene_spirv.h"
 #endif
 
 struct FZeroPresentation {
@@ -78,6 +80,10 @@ static bool CreateShader(FZeroPresentation *v) {
     info.code = kSceneShaderDXIL;
     info.code_size = sizeof(kSceneShaderDXIL);
     info.format = SDL_GPU_SHADERFORMAT_DXIL;
+#elif defined(FZERO_VULKAN_SHADERS)
+    info.code = kSceneShaderSPIRV;
+    info.code_size = sizeof(kSceneShaderSPIRV);
+    info.format = SDL_GPU_SHADERFORMAT_SPIRV;
 #else
     info.code = (const Uint8 *)kSceneShader;
     info.code_size = sizeof(kSceneShader) - 1;
@@ -109,18 +115,22 @@ FZeroPresentation *FZeroPresentationCreate(SDL_Window *window, bool legacy) {
     FZeroPresentation *v = calloc(1, sizeof(*v));
     if (!v) return NULL;
     v->legacy = legacy;
-#if (defined(__APPLE__) || defined(_WIN32)) && SDL_VERSION_ATLEAST(3, 4, 0)
+#if (defined(__APPLE__) || defined(_WIN32) || defined(FZERO_VULKAN_SHADERS)) && SDL_VERSION_ATLEAST(3, 4, 0)
     if (!legacy && strcmp(SDL_GetCurrentVideoDriver(), "dummy")) {
         SDL_PropertiesID props = SDL_CreateProperties();
         SDL_SetPointerProperty(props, SDL_PROP_RENDERER_CREATE_WINDOW_POINTER, window);
         SDL_SetStringProperty(props, SDL_PROP_RENDERER_CREATE_NAME_STRING, "gpu");
 #ifdef _WIN32
         SDL_SetBooleanProperty(props, SDL_PROP_RENDERER_CREATE_GPU_SHADERS_DXIL_BOOLEAN, true);
+#elif defined(FZERO_VULKAN_SHADERS)
+        SDL_SetBooleanProperty(props, SDL_PROP_RENDERER_CREATE_GPU_SHADERS_SPIRV_BOOLEAN, true);
 #else
         SDL_SetBooleanProperty(props, SDL_PROP_RENDERER_CREATE_GPU_SHADERS_MSL_BOOLEAN, true);
 #endif
         v->renderer = SDL_CreateRendererWithProperties(props);
         SDL_DestroyProperties(props);
+        if (!v->renderer)
+            fprintf(stderr, "[Video] GPU renderer unavailable: %s; using SDL composition\n", SDL_GetError());
         if (v->renderer && !CreateShader(v)) {
             fprintf(stderr, "[Video] Shader setup failed: %s; using SDL composition\n", SDL_GetError());
             DestroyShader(v);
