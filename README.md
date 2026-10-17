@@ -257,14 +257,14 @@ Dependency caches stay under ignored `.tools/` and build directories.
 After building, run:
 
 ```powershell
-python tools/package_windows.py --version 0.5.0
+python tools/package_windows.py --version 0.6.0
 ```
 
 The packager runs CTest and GPU presentation checks (brief test windows appear),
 stages only program files and notices, resolves x64 SDL/Visual C++ runtime
 dependencies, and tests ROM rejection with a clean PATH. A GPU supporting the
 filter path is required on the packaging machine. The ZIP and SHA-256 file are
-written under `build-release/v0.5.0-windows-x64/`. Existing output is never
+written under `build-release/v0.6.0-windows-x64/`. Existing output is never
 overwritten; use `--output` to select a new directory for a subsequent build.
 
 To play, extract the entire ZIP to a writable folder and open
@@ -279,12 +279,12 @@ The ZIP contains no ROM, generated C, recordings, or user data.
 From a clean checkout, after building:
 
 ```sh
-python3 tools/package_linux.py --version 0.5.0 \
+python3 tools/package_linux.py --version 0.6.0 \
   --sdl-prefix .tools/sdl3-3.4.16 --source-revision "$(git rev-parse HEAD)"
 ```
 
 The packager runs CTest and relocation checks, then writes a `.tar.gz` and
-SHA-256 file under `build-release/v0.5.0-linux-x64/`. It bundles SDL, assets,
+SHA-256 file under `build-release/v0.6.0-linux-x64/`. It bundles SDL, assets,
 licences, and build metadata. No ROM or user data is included. Existing output
 is refused; use `--output` to select another directory.
 
@@ -405,7 +405,7 @@ SDL3, install its development files and set `SDL3_DIR` to the folder containing
 
 See [architecture](docs/ARCHITECTURE.md) and [dependency patches](docs/SNESRECOMP_PATCHES.md).
 After generation, maintainers can build the Mac release with
-`python3 tools/package_macos.py --version 0.5.0`. This downloads and verifies
+`python3 tools/package_macos.py --version 0.6.0`. This downloads and verifies
 SDL source, builds it for macOS 13, runs CTest, and writes the app, ZIP, and
 checksum under `build-release/`.
 

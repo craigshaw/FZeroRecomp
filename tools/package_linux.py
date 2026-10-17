@@ -97,7 +97,7 @@ def notices(package: Path, sdl: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", required=True, help="For example 0.5.0-linux-test.1")
+    parser.add_argument("--version", required=True, help="For example 0.6.0")
     parser.add_argument("--build-dir", type=Path, default=ROOT / "build")
     parser.add_argument("--sdl-prefix", type=Path, required=True, help="SDL installation used by the build")
     parser.add_argument("--source-revision", default="unrecorded", help="Source commit or WIP label supplied by the builder")
@@ -106,7 +106,7 @@ def main() -> None:
     if sys.platform != "linux" or platform.machine() != "x86_64":
         parser.error("Run on Linux x86_64")
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[A-Za-z0-9][A-Za-z0-9.-]*)?", args.version):
-        parser.error("Use a version such as 0.5.0-linux-test.1")
+        parser.error("Use a version such as 0.6.0 or 0.6.0-rc.1")
     build, sdl = args.build_dir.resolve(), args.sdl_prefix.resolve()
     release = (args.output or ROOT / "build-release" / f"v{args.version}-linux-x64").resolve()
     if release.exists():
@@ -115,7 +115,7 @@ def main() -> None:
     if cache_value(cache, "CMAKE_BUILD_TYPE") != "Release":
         parser.error("Only Release builds can be packaged")
     if cache_value(cache, "FZERO_LINUX_VULKAN") != "ON":
-        parser.error("The test package requires FZERO_LINUX_VULKAN=ON")
+        parser.error("The Linux package requires FZERO_LINUX_VULKAN=ON")
     # Match the SDL that the build actually loads, including lib/lib64 layouts.
     linked = re.search(r"libSDL3\.so\.0 => (.+?) \(", output("ldd", build / "fzero_recomp"))
     if not linked or not Path(linked[1]).resolve().is_relative_to(sdl):
@@ -147,7 +147,7 @@ def main() -> None:
             copy(build / "assets" / asset, package / "assets" / asset)
         notices(package, sdl)
         (package / "Readme.txt").write_text(
-            f"F-Zero Recomp {args.version} - Linux x86_64 test package\n\n"
+            f"F-Zero Recomp {args.version} - Linux x86_64\n\n"
             "Extract the entire archive into a writable folder. Open a terminal there\n"
             "and run ./fzero_recomp, choose your F-Zero (USA) ROM, and press Play.\n"
             "No ROM is included. Keep lib/ and assets/ beside the executable.\n\n"
@@ -167,7 +167,7 @@ def main() -> None:
             "selected in the launcher and is recorded in config.ini.\n"
             "Quit before updating. Back up saves/ and settings, replace program files,\n"
             "and retain your personal files. Extract somewhere writable, not /usr.\n\n"
-            "This test package has not been validated on other distributions.\n"
+            "This package has not been validated on other distributions.\n"
             "Source: https://github.com/craigshaw/FZeroRecomp\n"
             "Third-party licences are in Licenses/.\n"
             "Required Notice: Copyright (c) 2026 Craig Shaw\n"
@@ -194,7 +194,7 @@ def main() -> None:
         checksum = digest(archive)
         archive.with_suffix(".gz.sha256").write_text(f"{checksum}  {archive.name}\n", encoding="ascii")
         stage.rename(release)
-    print(f"\nTest package: {release / archive.name}\nSHA-256: {checksum}")
+    print(f"\nLinux package: {release / archive.name}\nSHA-256: {checksum}")
 
 
 if __name__ == "__main__":

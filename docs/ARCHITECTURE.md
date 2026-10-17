@@ -277,7 +277,7 @@ required subsystems. This avoids recreating libdecor's GTK decoration plugin
 on Wayland, which warns if GTK has already been initialised. An exit handler
 calls `SDL_Quit` after normal shutdown, launcher cancellation, or startup failure.
 
-The Linux test package also uses executable-relative storage. Its CMake
+The Linux package also uses executable-relative storage. Its CMake
 `FZeroRuntime` install component sets the executable's runtime library path to
 `$ORIGIN/lib`; source builds retain the configured SDL path. The package tool
 copies SDL, named runtime assets and licence notices into a fresh directory.
