@@ -14,7 +14,7 @@ part of the source repository.
 ## Status and features
 
 F-Zero Recomp brings full widescreen racing, enhanced visuals, and expanded
-records to F-Zero (USA) on macOS (Apple Silicon) and Windows (x64).
+records to F-Zero (USA) on Linux (x86_64), macOS (Apple Silicon), and Windows (x64).
 
 - **Original (8:7), 16:9, and 32:9 display modes.** See more of the track and
   surrounding scenery in the wider modes, with the race HUD positioned for
@@ -31,10 +31,10 @@ records to F-Zero (USA) on macOS (Apple Silicon) and Windows (x64).
   markers highlighting your new records. Existing records are imported,
   and saves remain compatible with the original game.
 
-Linux source builds support Vulkan visual filters. Automated and manual checks
-passed on Ubuntu 24.04 x86_64 with Intel graphics; other distributions and GPUs
-need validation. See [Building on Linux](#linux-x86_64). A Linux test package
-can be built from source. No Linux release is published yet.
+Linux builds support Vulkan visual filters. Automated and manual checks passed
+on Ubuntu 24.04 x86_64 with Intel graphics; other distributions and GPUs need
+validation. See [Download and install](#download-and-install) or
+[Building on Linux](#linux-x86_64).
 
 ### Widescreen
 
@@ -94,14 +94,31 @@ The launcher also accepts the same payload with a 512-byte copier header.
 
 ## Download and install
 
-The [0.5.0 release](https://github.com/craigshaw/FZeroRecomp/releases/tag/v0.5.0)
-is available for Windows and macOS. Downloads bundle SDL; no compiler or code
-generation is needed to play. You supply your own F-Zero (USA) ROM.
+The [0.6.0 release](https://github.com/craigshaw/FZeroRecomp/releases/tag/v0.6.0)
+is available for Linux. Windows and macOS 0.6.0 builds are pending; their latest
+downloads remain at 0.5.0. Downloads bundle SDL; no compiler or code generation
+is needed to play. You supply your own F-Zero (USA) ROM. The custom save-folder
+option requires 0.6.0.
 
 | Platform | Download | Requirements |
 | --- | --- | --- |
+| Linux | [Linux x86_64 tar.gz (0.6.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.6.0/FZeroRecomp-v0.6.0-Linux-x64.tar.gz) | glibc 2.38+, `GLIBCXX_3.4.29`, and system graphics/audio libraries; tested on Ubuntu 24.04 with Intel graphics |
 | Windows | [Windows x64 ZIP (0.5.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.5.0/FZeroRecomp-v0.5.0-Windows-x64.zip) | Windows 10/11 x64; Direct3D 12 with Shader Model 6.0 for visual filters |
 | macOS | [Apple Silicon ZIP (0.5.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.5.0/FZeroRecomp-v0.5.0-macOS-arm64.zip) | Apple Silicon (M1 or newer), macOS 13 or newer; Intel Macs are not supported |
+
+### Linux
+
+1. Download the Linux archive and extract it into a writable folder.
+2. Open a terminal in its `F-Zero Recomp` directory and run `./fzero_recomp`.
+3. Select your F-Zero (USA) ROM and press **Play**. Press **F1** for settings.
+
+Keep `lib/` and `assets/` beside the executable. Vulkan is used for visual
+filters; unsupported GPUs use Original colours and retain widescreen. The
+release includes a `.tar.gz.sha256` checksum file.
+
+Settings and saves stay beside the executable. When updating, quit the game,
+back up your data, and preserve `config.ini`, `keybinds.ini`, `rom.cfg`,
+`saves/`, and `screenshots/`. The launcher can select a custom save folder.
 
 ### Windows
 
