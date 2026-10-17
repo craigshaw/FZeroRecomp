@@ -340,3 +340,33 @@ Remove-Item Env:SNESRECOMP_VSYNC, Env:SNESRECOMP_FRAME_TIMING
 These overrides last only in that shell and do not change saved settings.
 The no-VSync comparison can tear. It distinguishes presentation waits from
 scene rendering cost without changing game speed or the selected filter.
+
+### Linux desktop checks
+
+CTest uses dummy video for the host UI tests. To check Vulkan on an active
+Wayland desktop, run the same tests with real GPU readback in a separate
+working directory:
+
+```sh
+mkdir -p build/linux-gpu-test
+(cd build/linux-gpu-test && \
+  SDL_VIDEODRIVER=wayland SDL_AUDIODRIVER=dummy FZERO_TEST_GPU=1 \
+  ../fzero_host_ui_tests)
+```
+
+The log must report `renderer=gpu`, `GPU backend: vulkan`, and
+`host UI tests: passed`. This checks all four styles, three aspect modes,
+protected HUD colours, sampling, resizing, overlays, screenshots, and bloom.
+To check fallback, use another test directory and replace `FZERO_TEST_GPU=1`
+with `SDL_GPU_DRIVER=fzero-unavailable-test FZERO_TEST_FALLBACK=1`.
+
+The launcher lifecycle check needs your ROM and an active desktop:
+
+```sh
+SDL_VIDEODRIVER=wayland python3 tests/test_launcher_lifecycle.py \
+  build/fzero_recomp "/path/to/F-Zero (USA).sfc"
+```
+
+It checks Play with 30 frame readbacks, cancellation, and an intentional audio
+startup failure. GTK warnings are fatal; settings and saves use a temporary
+directory. These desktop checks are separate from CTest.

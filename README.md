@@ -31,10 +31,10 @@ records to F-Zero (USA) on macOS (Apple Silicon) and Windows (x64).
   markers highlighting your new records. Existing records are imported,
   and saves remain compatible with the original game.
 
-Linux source builds support Vulkan visual filters and have passed automated
-checks on Ubuntu 24.04.
-See the [Linux build instructions and validation limits](docs/LINUX_BUILD.md).
-A Linux test package can be built from source. No Linux release is published yet.
+Linux source builds support Vulkan visual filters. Automated and manual checks
+passed on Ubuntu 24.04 x86_64 with Intel graphics; other distributions and GPUs
+need validation. See [Building on Linux](#linux-x86_64). A Linux test package
+can be built from source. No Linux release is published yet.
 
 ### Widescreen
 
@@ -157,6 +157,15 @@ Visual filters use SDL 3.4 or newer's GPU renderer: Metal on macOS,
 Direct3D 12 with Shader Model 6.0 on Windows, or Vulkan on Linux. Other
 renderers retain Original colours and support widescreen.
 
+Clone the project, then follow the instructions for your platform:
+
+```sh
+git clone https://github.com/craigshaw/FZeroRecomp.git
+cd FZeroRecomp
+```
+
+### macOS (Apple Silicon)
+
 Requirements: Git, Python 3.11+, CMake 3.20+, Ninja, C11/C++17 compilers, SDL3
 development files, and OpenGL development files. On macOS, Apple's Command Line
 Tools provide the compilers and OpenGL SDK; Homebrew can supply the other tools:
@@ -165,12 +174,10 @@ Tools provide the compilers and OpenGL SDK; Homebrew can supply the other tools:
 brew install cmake ninja python sdl3
 ```
 
-Clone the project, then place your headerless dump at `fzero_usa_reference.sfc`
-in the project directory before generation:
+Place your headerless dump at `fzero_usa_reference.sfc` in the project directory,
+then generate and build:
 
 ```sh
-git clone https://github.com/craigshaw/FZeroRecomp.git
-cd FZeroRecomp
 git submodule update --init
 sh tools/apply_snesrecomp_patches.sh
 python3 snesrecomp/tools/v2_sync_funcs_h.py --cfg-dir config --out config/funcs.h
@@ -185,6 +192,42 @@ the launcher for one run, pass a ROM path:
 ```sh
 ./build/fzero_recomp "/path/to/F-Zero (USA).sfc"
 ```
+
+### Linux (x86_64)
+
+Tested on Ubuntu 24.04. Install the build tools and SDL development dependencies:
+
+```sh
+sudo apt-get update
+sudo apt-get install --no-install-recommends \
+  build-essential git python3 cmake ninja-build pkg-config ca-certificates \
+  libasound2-dev libpulse-dev libpipewire-0.3-dev \
+  libwayland-dev wayland-protocols libdecor-0-dev \
+  libxkbcommon-dev libx11-dev libxext-dev libxrandr-dev \
+  libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev \
+  libdrm-dev libgbm-dev libgl-dev libegl-dev libgles-dev \
+  libdbus-1-dev libudev-dev libusb-1.0-0-dev libvulkan-dev zenity
+```
+
+Other distributions need equivalent packages, Python 3.11+, and CMake 3.20+.
+The pinned shader compiler requires glibc 2.38+ and a C++ runtime providing
+`GLIBCXX_3.4.29`. From the cloned project directory, run:
+
+```sh
+python3 build-linux.py --rom "/path/to/F-Zero (USA).sfc"
+./build/fzero_recomp
+```
+
+The helper initialises pinned submodules, verifies your ROM, downloads and
+verifies SDL 3.4.16 and DXC 1.9.2609, generates C, and builds the game with
+Vulkan filters. Dependencies stay in ignored `.tools/` and are reused on later
+builds. No system SDL installation is needed. Choose your ROM in the launcher
+and press **Play**; it can remain outside the checkout.
+
+Use `--skip-generate` for later host/shader edits, `--jobs 2` to limit memory
+use, and `--skip-submodule-update` for builds with existing pinned submodules.
+`FZERO_ROM` can supply the ROM path instead of `--rom`. Run checks with
+`ctest --test-dir build --output-on-failure`. See `--help` for all options.
 
 ### Windows (native x64 MSVC)
 
@@ -230,6 +273,27 @@ tools or separate SDL installation are required. Keep the executable, DLLs,
 and assets together. Settings and saves stay alongside the executable, so
 preserve `config.ini`, `keybinds.ini`, `rom.cfg`, and `saves/` when updating.
 The ZIP contains no ROM, generated C, recordings, or user data.
+
+### Linux release archive
+
+From a clean checkout, after building:
+
+```sh
+python3 tools/package_linux.py --version 0.5.0 \
+  --sdl-prefix .tools/sdl3-3.4.16 --source-revision "$(git rev-parse HEAD)"
+```
+
+The packager runs CTest and relocation checks, then writes a `.tar.gz` and
+SHA-256 file under `build-release/v0.5.0-linux-x64/`. It bundles SDL, assets,
+licences, and build metadata. No ROM or user data is included. Existing output
+is refused; use `--output` to select another directory.
+
+Extract the archive into a writable folder and run `./fzero_recomp` from its
+`F-Zero Recomp` directory. Keep `lib/` and `assets/` beside it. Preserve
+`config.ini`, `keybinds.ini`, `rom.cfg`, `saves/`, and `screenshots/` when updating.
+The tested Ubuntu package needs glibc 2.38+, `GLIBCXX_3.4.29`, and system
+graphics, desktop, and audio libraries. Actual requirements are recorded in
+`BuildInfo.json`; compatibility with other distributions needs testing.
 
 ## Controls and settings
 
