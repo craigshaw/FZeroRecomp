@@ -31,7 +31,9 @@ records to F-Zero (USA) on macOS (Apple Silicon) and Windows (x64).
   markers highlighting your new records. Existing records are imported,
   and saves remain compatible with the original game.
 
-Linux builds are not yet verified.
+Linux source builds have passed initial automated checks on Ubuntu 24.04.
+See the [Linux build instructions and validation limits](docs/LINUX_BUILD.md).
+There is no packaged Linux release yet.
 
 ### Widescreen
 

@@ -285,7 +285,7 @@ Use isolated executable-relative settings and saves for comparisons.
 
 | Variable | Purpose |
 | --- | --- |
-| `SNESRECOMP_VALIDATE_PRESENTATION=1` | GPU readback comparison; requires the shader path and exits on a mismatch |
+| `SNESRECOMP_VALIDATE_PRESENTATION=1` | GPU readback comparison; exits on a mismatch |
 | `SNESRECOMP_HUD_DIAGNOSTIC=1` | Greyscale scene with coloured protected pixels; requires the shader path |
 | `SNESRECOMP_PRESENTATION=legacy` | Compare with the older single-texture native presentation |
 | `SNESRECOMP_FRAME_TIMING=1` | Log output size, display refresh, VSync, presentation and simulation rates, and average host stage times every 120 presentations |
