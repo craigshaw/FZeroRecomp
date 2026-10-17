@@ -348,6 +348,33 @@ Full keyboard gameplay remains untested. This play test used changing settings,
 menu pauses, and screenshots; use the separate attract-sequence measurements
 above for performance comparisons.
 
+## Launcher lifecycle
+
+The host keeps SDL active between the launcher and game windows. Previously,
+the launcher called `SDL_Quit`, and the game initialised SDL again. On Ubuntu
+Wayland, this recreated libdecor's GTK decoration plugin and produced
+`gtk_disable_setlocale() must be called before gtk_init()`. A debugger trace
+confirmed that source. The host now uses recomp-ui's supported SDL preservation
+API and calls `SDL_Quit` at process exit, including cancellation and startup
+failure. The pinned dependencies need no changes.
+
+Run the desktop regression check with your own ROM:
+
+```sh
+SDL_VIDEODRIVER=wayland python3 tests/test_launcher_lifecycle.py \
+  build/fzero_recomp "/path/to/F-Zero (USA).sfc"
+```
+
+This check opens the real launcher at 1100 x 880, clicks Play through its
+script interface, and verifies all 30 presentations by readback. It also checks launcher
+cancellation and an intentional audio initialisation failure. GTK warnings
+are fatal during the check. Settings and saves use a temporary directory.
+The check failed with the old host and passed with SDL preservation on the
+Ubuntu system above. It needs an active desktop and is separate from CTest.
+The owner also confirmed native ROM selection with **Browse for ROM** and
+**Play**. That run started the Vulkan renderer, completed 300 presentations,
+and exited normally without the GTK warning. It used isolated settings and saves.
+
 ## Vulkan validation
 
 The synthetic GPU test uses real Vulkan rendering and readback. It checks

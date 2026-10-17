@@ -376,6 +376,12 @@ static bool VerifyRom(const char *path, const uint8 expected[32]) {
 }
 
 int main(int argc, char **argv) {
+  /* The host owns SDL for the whole process, including launcher cancellation
+   * and startup failures. Individual windows still release their resources. */
+  if (atexit(SDL_Quit) != 0) {
+    fprintf(stderr, "Cannot register SDL cleanup\n");
+    return 1;
+  }
   static const uint8 expected_sha256[32] = {
       0xbf, 0x16, 0xc3, 0xc8, 0x67, 0xc5, 0x8e, 0x2a,
       0xb0, 0x61, 0xc7, 0x0d, 0xe9, 0x29, 0x5b, 0x69,
@@ -532,6 +538,10 @@ int main(int argc, char **argv) {
     gi.known_sha1_hex = k_rom_sha1_hex;
     gi.num_known_sha1 = 1;
 
+    /* Keep the video subsystem alive between the launcher and game windows.
+     * Restarting it on Wayland recreates libdecor's GTK plugin after GTK has
+     * already initialised, which causes a gtk_disable_setlocale warning. */
+    recomp_launcher_set_preserve_sdl(1);
     int act = recomp_launcher_run_window(
         "F-Zero Launcher", &ls, &gi, ".",
         init_rom[0] ? init_rom : NULL, rom_path, sizeof(rom_path));
@@ -939,7 +949,6 @@ int main(int argc, char **argv) {
   free(g_layers);
   FZeroPresentationDestroy(g_presentation);
   SDL_DestroyWindow(g_window);
-  SDL_Quit();
   free(rom);
   return video_result;
 }

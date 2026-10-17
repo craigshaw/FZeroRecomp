@@ -271,6 +271,12 @@ the packaged Mac app uses `~/Library/Application Support/FZeroRecomp/` and
 loads assets from its bundle. Save migration in source builds copies a legacy
 save only when the destination is absent and retains the original.
 
+The host owns SDL until process exit. It asks the launcher to preserve SDL
+when it destroys its window and GL context, then initialises the game's
+required subsystems. This avoids recreating libdecor's GTK decoration plugin
+on Wayland, which warns if GTK has already been initialised. An exit handler
+calls `SDL_Quit` after normal shutdown, launcher cancellation, or startup failure.
+
 The Linux test package also uses executable-relative storage. Its CMake
 `FZeroRuntime` install component sets the executable's runtime library path to
 `$ORIGIN/lib`; source builds retain the configured SDL path. The package tool
