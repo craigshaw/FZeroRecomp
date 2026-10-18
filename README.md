@@ -319,10 +319,10 @@ graphics, desktop, and audio libraries. Actual requirements are recorded in
 | A / B / X / Y | X / Z / S / A |
 | L / R | Q / E |
 | Start / Select | Enter / Backspace |
-| Settings | F1 |
+| Settings / Resume | Esc or F1 |
 | FPS readout | F |
 | Screenshot | F12 |
-| Quit, with settings closed | Esc |
+| Quit to desktop | Settings sidebar > Quit |
 
 Connect a gamepad before launch and select Gamepad as the input source. The
 host uses the first available pad, with standard SNES button positions and
@@ -330,7 +330,16 @@ D-pad or left-stick steering. Custom physical pad bindings and pad selection
 are not implemented. Keyboard bindings can be changed in the launcher's
 Controller page and are loaded when you press Play.
 
-F1 or gamepad Select+Start opens settings and pauses gameplay and audio.
+On Xbox controllers, **View** maps to SNES Select and **Menu** maps to SNES
+Start. The **Xbox / Guide** button opens or closes the in-game settings menu.
+The button must be delivered to the game by the operating system and any
+controller software. **View+Menu** (Select+Start) remains an alternative.
+
+Esc, F1, Xbox / Guide or gamepad Select+Start opens settings and pauses gameplay
+and audio. Press Esc, F1 or Xbox / Guide again to resume. Backspace or
+gamepad B goes back one menu level. Select **Quit** beneath **System** in the settings sidebar to return
+straight to the desktop, without confirmation. The normal save and shutdown
+path still runs. **Resume** stays at the bottom of the settings menu.
 The launcher and in-game **Display** menus share Fullscreen, Aspect Ratio,
 Window Scale, Stretch to Fill, Race Filter, Linear Filter, and FPS Readout.
 Launcher changes apply when you press **Play** and use the same saved settings.
@@ -339,8 +348,8 @@ Enhanced race filter selected. Existing saved choices take precedence.
 Select **Display → Aspect Ratio → 32:9** for an ultrawide screen. You can
 switch between Original, 16:9, and 32:9 while paused. Turn Stretch to Fill off
 to use integer scaling when the window and game aspect ratios differ.
-The launcher lists only supported hotkeys: F1 for settings, F12 for screenshots,
-F for the FPS readout, and Esc to quit with settings closed. The FPS shortcut
+The launcher lists Esc/F1 for settings, F12 for screenshots,
+F for the FPS readout, and the menu action for quitting. The FPS shortcut
 can be rebound; the other shortcuts are fixed.
 
 **F12** saves a timestamped PNG to `screenshots/` beside the executable (packaged

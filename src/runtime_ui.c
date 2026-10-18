@@ -7,9 +7,9 @@
  * translation. Values persist through FZeroSettingsSave into the same
  * config.ini [Settings] the pre-boot launcher reads, so both surfaces agree.
  *
- * Input contract: F1 toggles the menu (gamepad: Select+Start pressed
- * together, so Start alone keeps its in-game meaning). Menu open: Escape /
- * Backspace back out (section -> close), Enter selects, arrows navigate,
+ * Input contract: Esc, F1 or gamepad Guide toggles the menu. Select+Start
+ * together also opens it, so Start alone keeps its in-game meaning. Menu open:
+ * Backspace backs out (section -> close), Enter selects, arrows navigate,
  * gamepad D-pad navigates with A=accept/B=back/Start=close. While open every
  * key/button is withheld from the game; closing the menu is the only way back
  * to play (plus the Resume action). The host decides pause policy - see
@@ -27,7 +27,7 @@
 #include "config.h"
 #include "display_layout.h"
 #include "desktop/sdl_compat.h"
-#include "recomp_runtime_ui.h"
+#include "recomp_runtime_ui_internal.h"
 
 /* Same framebuffer size as src/main.c. */
 #define SNES_W FZERO_NATIVE_WIDTH
@@ -54,10 +54,13 @@ struct FZeroRuntimeUi {
     FZeroFpsHotkey fps_hotkey;
     int enhanced_available;
     int screenshot_requested;
+    int quit_selected;
+    int quit_requested;
     /* Physical gamepad state (menu closed) so Select+Start - not Start alone
      * - can be the open chord without stealing Start from the game. */
     int pad_start_down;
     int pad_select_down;
+    int pad_guide_down;
 };
 
 /* SDL3 renamed the controller EVENT constants (SDL_EVENT_CONTROLLER_* ->
@@ -122,9 +125,6 @@ static const RecompRuntimeUiItem kItems[] = {
     {FZERO_KEY_SKIP_LAUNCHER, "System", "Skip Launcher",
      "Boot straight into the game next launch from the cached ROM.",
      RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, NULL, 0, NULL},
-    {RECOMP_RUNTIME_UI_KEY_RESUME, "System", "Resume",
-     "Close the menu and keep playing.", RECOMP_RUNTIME_UI_ACTION,
-     0, 0, 0, NULL, 0, NULL},
     {FZERO_KEY_SCREENSHOT, "System", "Take Screenshot (F12)",
      "Save the game image to the screenshots folder.", RECOMP_RUNTIME_UI_ACTION,
      0, 0, 0, NULL, 0, NULL},
@@ -215,10 +215,6 @@ static int RunAction(void *context, const RecompRuntimeUiItem *item) {
     rt->screenshot_requested = 1;
     return 1;
   }
-  if (!strcmp(item->key, RECOMP_RUNTIME_UI_KEY_RESUME)) {
-    recomp_runtime_ui_close(rt->ui);
-    return 1;
-  }
   return 0;
 }
 
@@ -240,6 +236,10 @@ static void Save(void *context) {
 
 static void VisibilityChanged(void *context, int open) {
   FZeroRuntimeUi *rt = (FZeroRuntimeUi *)context;
+  if (open) {
+    rt->quit_selected = 0;
+    rt->ui->section_index = 0;
+  }
   /* The host stops running frames while the menu is open, so nothing feeds
    * the audio stream; pause the device to stop the pull (clean silence
    * instead of underrun churn) and resume on close. */
@@ -317,6 +317,23 @@ int FZeroRuntimeUiHandleEvent(FZeroRuntimeUi *rt,
   int pressed = 0;
   int repeat = 0;
 
+  /* Keep the physical menu chord state current while navigating. */
+  if (event->type == FZERO_EVENT_BUTTON_DOWN || event->type == FZERO_EVENT_BUTTON_UP) {
+    const int down = event->type == FZERO_EVENT_BUTTON_DOWN;
+    const int button = SNESRECOMP_SDL_EVENT_BUTTON(*event);
+    if (button == SDL_CONTROLLER_BUTTON_START) rt->pad_start_down = down;
+    if (button == SDL_CONTROLLER_BUTTON_BACK) rt->pad_select_down = down;
+    /* Xbox Guide is a host shortcut, with no SNES button mapping. Consume
+     * releases and duplicate downs so one physical press toggles once. */
+    if (button == SDL_CONTROLLER_BUTTON_GUIDE) {
+      const int was_down = rt->pad_guide_down;
+      rt->pad_guide_down = down;
+      if (down && !was_down)
+        recomp_runtime_ui_handle_input(ui, RECOMP_RUNTIME_UI_INPUT_TOGGLE, 1, 0);
+      return 1;
+    }
+  }
+
   /* F12 captures the game even while paused in settings. Key-up and repeats
    * are consumed without taking additional screenshots. */
   if ((event->type == SDL_EVENT_KEY_DOWN || event->type == SDL_EVENT_KEY_UP) &&
@@ -327,11 +344,12 @@ int FZeroRuntimeUiHandleEvent(FZeroRuntimeUi *rt,
     return 1;
   }
 
-  /* Menu controls retain priority while open; F1 always owns the menu.
+  /* Menu controls retain priority while open; Esc/F1 always own the menu.
    * Ignore lock bits, and accept either side of each required modifier. */
   if (!open && (event->type == SDL_EVENT_KEY_DOWN ||
                 event->type == SDL_EVENT_KEY_UP) &&
-      event->key.scancode != SDL_SCANCODE_F1 && rt->fps_hotkey.key &&
+      event->key.scancode != SDL_SCANCODE_F1 &&
+      event->key.scancode != SDL_SCANCODE_ESCAPE && rt->fps_hotkey.key &&
       event->key.key == rt->fps_hotkey.key) {
     SDL_Keymod mods = event->key.mod;
     uint16_t normalized = ((mods & SDL_KMOD_CTRL) ? SDL_KMOD_CTRL : 0) |
@@ -352,8 +370,8 @@ int FZeroRuntimeUiHandleEvent(FZeroRuntimeUi *rt,
     pressed = event->type == SDL_EVENT_KEY_DOWN;
     repeat = pressed && event->key.repeat;
     switch (FZERO_EVENT_SCANCODE(*event)) {
-    case SDL_SCANCODE_F1: in = RECOMP_RUNTIME_UI_INPUT_TOGGLE; break;
-    case SDL_SCANCODE_ESCAPE: in = RECOMP_RUNTIME_UI_INPUT_BACK; break;
+    case SDL_SCANCODE_F1:
+    case SDL_SCANCODE_ESCAPE: in = RECOMP_RUNTIME_UI_INPUT_TOGGLE; break;
     case SDL_SCANCODE_RETURN: in = RECOMP_RUNTIME_UI_INPUT_ACCEPT; break;
     case SDL_SCANCODE_BACKSPACE: in = RECOMP_RUNTIME_UI_INPUT_BACK; break;
     case SDL_SCANCODE_UP: in = RECOMP_RUNTIME_UI_INPUT_UP; break;
@@ -362,7 +380,7 @@ int FZeroRuntimeUiHandleEvent(FZeroRuntimeUi *rt,
     case SDL_SCANCODE_RIGHT: in = RECOMP_RUNTIME_UI_INPUT_RIGHT; break;
     default:
       /* Unknown key: withheld while the menu is open; the game sees it when
-       * the menu is closed (the game never binds F1, so no clash). */
+       * the menu is closed. */
       return open ? 1 : 0;
     }
     break;
@@ -370,14 +388,8 @@ int FZeroRuntimeUiHandleEvent(FZeroRuntimeUi *rt,
   case FZERO_EVENT_BUTTON_UP: {
     pressed = event->type == FZERO_EVENT_BUTTON_DOWN;
     const int button = SNESRECOMP_SDL_EVENT_BUTTON(*event);
-    /* Track the physical pad state regardless of the menu, so the closed
-     * menu can detect the Select+Start open chord below. */
-    if (button == SDL_CONTROLLER_BUTTON_START)
-      rt->pad_start_down = pressed;
-    else if (button == SDL_CONTROLLER_BUTTON_BACK) /* the Select button */
-      rt->pad_select_down = pressed;
     if (!open) {
-      /* Menu closed: only the Select+Start chord opens it; every other pad
+      /* Guide was handled above. Otherwise only Select+Start opens it; other pad
        * input - including Start alone, the game's pause/menu button - is the
        * game's. */
       if (pressed && !repeat &&
@@ -411,8 +423,28 @@ int FZeroRuntimeUiHandleEvent(FZeroRuntimeUi *rt,
     return 0;
   }
 
+  /* Quit is an action after the last shared section, not a settings page.
+   * Keep the existing page visible while keyboard/pad focus is on Quit. */
+  if (open && !ui->in_section && pressed) {
+    if (rt->quit_selected) {
+      if (in == RECOMP_RUNTIME_UI_INPUT_ACCEPT) {
+        if (!repeat) FZeroRuntimeUiRequestQuit(rt);
+        return 1;
+      }
+      if (in == RECOMP_RUNTIME_UI_INPUT_UP || in == RECOMP_RUNTIME_UI_INPUT_DOWN) {
+        ui->section_index = in == RECOMP_RUNTIME_UI_INPUT_UP ? ui->section_count - 1 : 0;
+        rt->quit_selected = 0;
+        return 1;
+      }
+    } else if ((in == RECOMP_RUNTIME_UI_INPUT_DOWN && ui->section_index + 1 == ui->section_count) ||
+               (in == RECOMP_RUNTIME_UI_INPUT_UP && ui->section_index == 0)) {
+      rt->quit_selected = 1;
+      return 1;
+    }
+  }
+
   /* Route to the shared menu model. Its return value IS the consume verdict:
-   * a closed menu consumes only the F1 toggle (opening it), so the game gets
+   * a closed menu consumes only the Esc/F1 toggle (opening it), so the game gets
    * every other key - Enter/arrows included; an open menu consumes all. */
   if ((int)in >= 0)
     return recomp_runtime_ui_handle_input(ui, in, pressed, repeat) != 0;
@@ -454,6 +486,24 @@ int FZeroRuntimeUiTakeScreenshotRequest(FZeroRuntimeUi *rt) {
   return requested;
 }
 
+int FZeroRuntimeUiQuitIsSelected(const FZeroRuntimeUi *rt) {
+  return FZeroRuntimeUiIsOpen(rt) && rt->quit_selected;
+}
+
+void FZeroRuntimeUiSelectQuit(FZeroRuntimeUi *rt, int selected) {
+  if (!FZeroRuntimeUiIsOpen(rt)) return;
+  rt->quit_selected = selected != 0;
+  if (selected) recomp_runtime_ui_leave_section(rt->ui);
+}
+
+void FZeroRuntimeUiRequestQuit(FZeroRuntimeUi *rt) {
+  if (FZeroRuntimeUiIsOpen(rt)) rt->quit_requested = 1;
+}
+
+int FZeroRuntimeUiQuitRequested(const FZeroRuntimeUi *rt) {
+  return rt && rt->quit_requested;
+}
+
 void FZeroRuntimeUiResetPad(FZeroRuntimeUi *rt) {
-  if (rt) rt->pad_start_down = rt->pad_select_down = 0;
+  if (rt) rt->pad_start_down = rt->pad_select_down = rt->pad_guide_down = 0;
 }

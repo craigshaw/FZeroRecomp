@@ -287,8 +287,8 @@ static uint32 GamepadButtonBit(int button) {
   case SDL_CONTROLLER_BUTTON_Y: return 0x200; /* X (top) */
   case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return 0x400; /* L */
   case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return 0x800; /* R */
-  case SDL_CONTROLLER_BUTTON_START: return 0x008;
-  case SDL_CONTROLLER_BUTTON_BACK: return 0x004;
+  case SDL_CONTROLLER_BUTTON_START: return 0x008; /* Xbox Menu -> SNES Start */
+  case SDL_CONTROLLER_BUTTON_BACK: return 0x004; /* Xbox View -> SNES Select */
   case SDL_CONTROLLER_BUTTON_DPAD_UP: return 0x010;
   case SDL_CONTROLLER_BUTTON_DPAD_DOWN: return 0x020;
   case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return 0x040;
@@ -810,9 +810,8 @@ int main(int argc, char **argv) {
          * Menu transitions above still require release before resuming. */
         continue;
       }
-      if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
-          event.key.scancode == SDL_SCANCODE_ESCAPE) running = false;
     }
+    if (FZeroRuntimeUiQuitRequested(g_runtime_ui)) running = false;
     if (!running) break;
 
     bool overlay_open = FZeroRuntimeUiIsOpen(g_runtime_ui);

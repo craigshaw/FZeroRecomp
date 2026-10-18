@@ -33,16 +33,25 @@ int FZeroRuntimeUiIsOpen(const FZeroRuntimeUi *rt);
 void FZeroRuntimeUiOpen(FZeroRuntimeUi *rt);
 
 /* Route a KEY_DOWN/UP or gamepad BUTTON/AXIS event to the menu. Returns 1
- * when the event was consumed; 0 passes it through to the game. Keyboard: F1
+ * when the event was consumed; 0 passes it through to the game. Keyboard: Esc/F1
  * toggles the menu, F12 requests a screenshot; other unhandled keys reach the game when the menu is closed
- * and is withheld while it is open. Gamepad: Select+Start together opens the
- * menu (Start alone stays the game's button); while open A=accept, B=back,
+ * and is withheld while it is open. Gamepad: Guide toggles the menu;
+ * Select+Start together also opens it (Start alone stays the game's button).
+ * While open A=accept, B=back,
  * Start=close, D-pad navigates. */
 int FZeroRuntimeUiHandleEvent(FZeroRuntimeUi *rt,
                                     const SDL_Event *event);
 
 /* Consume the pending F12/menu capture request after drawing the game. */
 int FZeroRuntimeUiTakeScreenshotRequest(FZeroRuntimeUi *rt);
+
+/* The build-local presentation adds Quit after the shared settings sections.
+ * Selection does not replace the settings page. Activation requests normal
+ * host shutdown immediately, without a confirmation. */
+int FZeroRuntimeUiQuitIsSelected(const FZeroRuntimeUi *rt);
+void FZeroRuntimeUiSelectQuit(FZeroRuntimeUi *rt, int selected);
+void FZeroRuntimeUiRequestQuit(FZeroRuntimeUi *rt);
+int FZeroRuntimeUiQuitRequested(const FZeroRuntimeUi *rt);
 
 /* Re-apply the renderer's selected logical presentation from settings (used by
  * the stretch live-apply). */

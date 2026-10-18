@@ -265,8 +265,24 @@ viewport and logical presentation after ImGui. The local SDL3 renderer backend
 is covered by [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Opening settings pauses simulation and audio. Menu input is withheld from the
-game; held navigation buttons are suppressed until released. The launcher and
-runtime menu share settings. Source builds use executable-relative storage;
+game; held navigation buttons are suppressed until released. The
+runtime menu opens with Esc, F1 or the gamepad Guide button; each shortcut
+also closes the menu from any section. Guide presses are edge-triggered and
+its releases are consumed. Focus loss, pad disconnection and input-source
+changes clear its held state along with the Select+Start chord. Xbox View
+maps to SNES Select and Menu maps to SNES Start; their chord remains an
+alternative menu shortcut when Guide is unavailable to SDL.
+Backspace and gamepad B return from a settings page to the section list, or
+resume from that list. Quit is an action directly beneath System in the
+existing section list; Resume stays in the footer. There is one shared runtime
+settings presentation, with its existing responsive layout. Highlighting Quit
+keeps the last settings page visible and does not exit. Enter, gamepad A or a
+mouse click requests normal main-loop shutdown immediately, including the
+final records save. There is no confirmation. The host adapter extends section
+navigation for Quit and uses the pinned model's section state. A checked patch
+adds the row to a build-local renderer copy; the dependency stays unchanged.
+The launcher and runtime menu share settings. Source builds use
+executable-relative storage;
 the packaged Mac app uses `~/Library/Application Support/FZeroRecomp/` and
 loads assets from its bundle. Save migration in source builds copies a legacy
 save only when the destination is absent and retains the original.
@@ -292,8 +308,8 @@ boolean widescreen field; the host stages the three-way aspect choice and
 uses that field for compatibility. The saved `Widescreen` key retains values
 0 (Original) and 1 (16:9), and adds 2 (32:9). No existing setting is migrated.
 Play accepts those staged settings; closing the launcher discards them. The
-hotkey panel lists fixed Settings, Screenshot and Quit shortcuts plus the
-existing FPS binding editor. The controller page offers the input sources and
+hotkey panel lists fixed Settings and Screenshot shortcuts, the Quit menu
+action, and the existing FPS binding editor. The controller page offers the input sources and
 keyboard bindings the host reads, with fixed gamepad mapping explained.
 
 `cmake/fzero_launcher.cmake` applies the host adapter in `patches/recomp-ui/`

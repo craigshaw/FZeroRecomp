@@ -63,6 +63,7 @@ recomp_target_launcher_ui(fzero_recomp
     BOXART "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/boxart.png"
     BOXART_NAME boxart.png)
 fzero_target_launcher(fzero_recomp)
+fzero_target_runtime_ui(fzero_recomp)
 set_property(TARGET fzero_recomp APPEND PROPERTY LINK_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/boxart.png")
 if(NOT MSVC)
@@ -147,6 +148,7 @@ if(BUILD_TESTING)
         ${RECOMP_UI_ROOT}/src/third_party/imgui
         ${RECOMP_UI_ROOT}/src/third_party/imgui/backends)
     set_target_properties(fzero_host_ui_tests PROPERTIES CXX_STANDARD 17)
+    fzero_target_runtime_ui(fzero_host_ui_tests)
     snesrecomp_target_sdl(fzero_host_ui_tests)
     fzero_target_shaders(fzero_host_ui_tests)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/host-ui-test-data")

@@ -60,8 +60,8 @@ void fzero_launcher_hotkeys(LauncherModel* m, const LauncherTheme& th) {
     if (ImGui::BeginTable("fzero_hotkeys", 2, ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch, 1);
         ImGui::TableSetupColumn("Shortcut", ImGuiTableColumnFlags_WidthStretch, 2);
-        const char* labels[] = {"Settings / Resume", "Screenshot", "FPS Readout", "Quit Game"};
-        const char* keys[] = {"F1", "F12", nullptr, "Esc (with settings closed)"};
+        const char* labels[] = {"Settings / Resume", "Screenshot", "FPS Readout", "Quit to desktop"};
+        const char* keys[] = {"Esc or F1", "F12", nullptr, "Settings sidebar > Quit"};
         for (int row = 0; row < 4; ++row) {
             ImGui::TableNextColumn();
             ImGui::AlignTextToFramePadding();
@@ -83,6 +83,7 @@ void fzero_launcher_hotkeys(LauncherModel* m, const LauncherTheme& th) {
         ImGui::EndTable();
     }
     ImGui::Spacing();
-    ImGui::TextWrapped("Gamepad: Select + Start opens settings. Screenshots can also be taken from System in the in-game settings.");
+    ImGui::TextWrapped("Gamepad: Xbox / Guide opens or closes settings. Select + Start also opens settings. On Xbox controllers, View is SNES Select and Menu is SNES Start.");
+    ImGui::TextWrapped("Screenshots can also be taken from System in the in-game settings.");
     ImGui::TextWrapped("F12 saves the game image to the screenshots folder while playing or paused. On Mac media keyboards, use Fn + F12.");
 }

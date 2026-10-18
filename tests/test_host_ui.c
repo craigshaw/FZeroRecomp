@@ -164,6 +164,147 @@ static void SettleWindow(SDL_Window *window, SDL_Renderer *renderer) {
   CHECK(SDL_RenderPresent(renderer));
 }
 
+static void TestGuideMenu(FZeroSettings *settings, SDL_Window *window,
+                          SDL_Renderer *renderer, SDL_Texture *texture) {
+  FZeroRuntimeUi *rt = FZeroRuntimeUiCreate(settings, window, renderer, texture, NULL);
+  CHECK(rt);
+  /* View and Menu alone still pass through for SNES Select and Start. */
+  CHECK(!Button(rt, SDL_GAMEPAD_BUTTON_BACK, 1));
+  CHECK(!Button(rt, SDL_GAMEPAD_BUTTON_BACK, 0));
+  CHECK(!Button(rt, SDL_GAMEPAD_BUTTON_START, 1));
+  CHECK(!Button(rt, SDL_GAMEPAD_BUTTON_START, 0));
+  CHECK(!FZeroRuntimeUiIsOpen(rt));
+  CHECK(Button(rt, SDL_GAMEPAD_BUTTON_GUIDE, 0)); CHECK(!FZeroRuntimeUiIsOpen(rt));
+  CHECK(Button(rt, SDL_GAMEPAD_BUTTON_GUIDE, 1)); CHECK(FZeroRuntimeUiIsOpen(rt));
+  CHECK(Button(rt, SDL_GAMEPAD_BUTTON_GUIDE, 1)); CHECK(FZeroRuntimeUiIsOpen(rt));
+  CHECK(Button(rt, SDL_GAMEPAD_BUTTON_GUIDE, 0)); CHECK(FZeroRuntimeUiIsOpen(rt));
+  Key(rt, SDL_SCANCODE_RETURN, 1); /* Guide also resumes from a settings page. */
+  CHECK(Button(rt, SDL_GAMEPAD_BUTTON_GUIDE, 1)); CHECK(!FZeroRuntimeUiIsOpen(rt));
+  CHECK(Button(rt, SDL_GAMEPAD_BUTTON_GUIDE, 1)); CHECK(!FZeroRuntimeUiIsOpen(rt));
+  CHECK(Button(rt, SDL_GAMEPAD_BUTTON_GUIDE, 0)); CHECK(!FZeroRuntimeUiIsOpen(rt));
+  Key(rt, SDL_SCANCODE_F1, 1);
+  CHECK(Button(rt, SDL_GAMEPAD_BUTTON_GUIDE, 1)); CHECK(!FZeroRuntimeUiIsOpen(rt));
+  FZeroRuntimeUiResetPad(rt); /* Disconnection/focus loss must not latch Guide. */
+  CHECK(Button(rt, SDL_GAMEPAD_BUTTON_GUIDE, 1)); CHECK(FZeroRuntimeUiIsOpen(rt));
+  CHECK(Button(rt, SDL_GAMEPAD_BUTTON_GUIDE, 0)); CHECK(FZeroRuntimeUiIsOpen(rt));
+  CHECK(!FZeroRuntimeUiQuitRequested(rt));
+  FZeroRuntimeUiDestroy(rt);
+}
+
+static void TestSidebarQuit(FZeroSettings *settings, SDL_Window *window,
+                            SDL_Renderer *renderer, SDL_Texture *texture,
+                            FZeroImGui *ig) {
+  FZeroRuntimeUi *rt = FZeroRuntimeUiCreate(settings, window, renderer, texture, NULL);
+  CHECK(rt);
+  FZeroRuntimeUiRequestQuit(rt); CHECK(!FZeroRuntimeUiQuitRequested(rt));
+  CHECK(Key(rt, SDL_SCANCODE_ESCAPE, 1)); CHECK(FZeroRuntimeUiIsOpen(rt));
+  CHECK(Key(rt, SDL_SCANCODE_ESCAPE, 0)); CHECK(FZeroRuntimeUiIsOpen(rt));
+  CHECK(!FZeroRuntimeUiQuitIsSelected(rt) && !FZeroRuntimeUiQuitRequested(rt));
+  SDL_Event repeat = {0}; repeat.type = SDL_EVENT_KEY_DOWN; repeat.key.repeat = true;
+  repeat.key.scancode = SDL_SCANCODE_ESCAPE;
+  CHECK(FZeroRuntimeUiHandleEvent(rt, &repeat)); CHECK(FZeroRuntimeUiIsOpen(rt));
+  Key(rt, SDL_SCANCODE_RETURN, 1); /* Enter the existing Display settings. */
+  Key(rt, SDL_SCANCODE_BACKSPACE, 1); /* Return to the sidebar. */
+  Key(rt, SDL_SCANCODE_ESCAPE, 1); CHECK(!FZeroRuntimeUiIsOpen(rt));
+  Key(rt, SDL_SCANCODE_F1, 1); CHECK(FZeroRuntimeUiIsOpen(rt));
+  /* Capture the shared settings menu at wide and compact window sizes. */
+  for (int small = 0; small < 2; ++small) {
+    CHECK(SDL_SetWindowSize(window, small ? 398 : 800, small ? 448 : 700));
+    SettleWindow(window, renderer);
+    for (int frame = 0; frame < 2; ++frame) {
+      SDL_SetRenderDrawColor(renderer, 20, 40, 60, 255);
+      SDL_RenderClear(renderer);
+      fzero_imgui_render_overlay(ig, rt, renderer, 0, 0);
+      CHECK(FZeroRuntimeUiIsOpen(rt) && !FZeroRuntimeUiQuitRequested(rt));
+      CHECK(!SDL_RenderViewportSet(renderer));
+      if (frame == 1) {
+        CHECK(SDL_SetRenderLogicalPresentation(renderer, 0, 0,
+            SDL_LOGICAL_PRESENTATION_DISABLED));
+        SDL_Surface *pixels = SDL_RenderReadPixels(renderer, NULL); CHECK(pixels);
+        CHECK(SDL_SaveBMP(pixels, small ? "sidebar-small.bmp" : "sidebar-normal.bmp"));
+        SDL_DestroySurface(pixels);
+        FZeroRuntimeUiRestoreRendererState(rt, renderer);
+      }
+      CHECK(SDL_RenderPresent(renderer));
+    }
+  }
+  /* Quit follows the four settings sections. Merely selecting it is harmless. */
+  for (int i = 0; i < 4; ++i) Key(rt, SDL_SCANCODE_DOWN, 1);
+  CHECK(FZeroRuntimeUiQuitIsSelected(rt) && !FZeroRuntimeUiQuitRequested(rt));
+  repeat.key.scancode = SDL_SCANCODE_RETURN;
+  CHECK(FZeroRuntimeUiHandleEvent(rt, &repeat)); CHECK(!FZeroRuntimeUiQuitRequested(rt));
+  CHECK(Key(rt, SDL_SCANCODE_RETURN, 0)); CHECK(!FZeroRuntimeUiQuitRequested(rt));
+  Key(rt, SDL_SCANCODE_UP, 1); CHECK(!FZeroRuntimeUiQuitIsSelected(rt)); /* System. */
+  Key(rt, SDL_SCANCODE_DOWN, 1); CHECK(FZeroRuntimeUiQuitIsSelected(rt));
+  Key(rt, SDL_SCANCODE_DOWN, 1); CHECK(!FZeroRuntimeUiQuitIsSelected(rt)); /* Display. */
+  Key(rt, SDL_SCANCODE_UP, 1); CHECK(FZeroRuntimeUiQuitIsSelected(rt));
+  Key(rt, SDL_SCANCODE_ESCAPE, 1); CHECK(!FZeroRuntimeUiIsOpen(rt));
+  Key(rt, SDL_SCANCODE_F1, 1); CHECK(!FZeroRuntimeUiQuitIsSelected(rt));
+  Key(rt, SDL_SCANCODE_UP, 1); Key(rt, SDL_SCANCODE_RETURN, 1);
+  CHECK(FZeroRuntimeUiQuitRequested(rt)); /* No confirmation or second activation. */
+  FZeroRuntimeUiDestroy(rt);
+
+  rt = FZeroRuntimeUiCreate(settings, window, renderer, texture, NULL); CHECK(rt);
+  CHECK(!Button(rt, SDL_GAMEPAD_BUTTON_BACK, 1));
+  Button(rt, SDL_GAMEPAD_BUTTON_START, 1); CHECK(FZeroRuntimeUiIsOpen(rt));
+  Button(rt, SDL_GAMEPAD_BUTTON_START, 0); Button(rt, SDL_GAMEPAD_BUTTON_BACK, 0);
+  Button(rt, SDL_GAMEPAD_BUTTON_SOUTH, 1); /* Display. */
+  Button(rt, SDL_GAMEPAD_BUTTON_EAST, 1); /* Sidebar. */
+  for (int i = 0; i < 4; ++i) Button(rt, SDL_GAMEPAD_BUTTON_DPAD_DOWN, 1);
+  CHECK(FZeroRuntimeUiQuitIsSelected(rt));
+  Button(rt, SDL_GAMEPAD_BUTTON_SOUTH, 1); CHECK(FZeroRuntimeUiQuitRequested(rt));
+  FZeroRuntimeUiDestroy(rt);
+
+  /* Mouse focus and click use the same host action as keyboard and gamepad. */
+  rt = FZeroRuntimeUiCreate(settings, window, renderer, texture, NULL); CHECK(rt);
+  FZeroRuntimeUiOpen(rt);
+  FZeroRuntimeUiSelectQuit(rt, 1);
+  CHECK(FZeroRuntimeUiQuitIsSelected(rt) && !FZeroRuntimeUiQuitRequested(rt));
+  FZeroRuntimeUiSelectQuit(rt, 0); CHECK(!FZeroRuntimeUiQuitIsSelected(rt));
+  FZeroRuntimeUiRequestQuit(rt); CHECK(FZeroRuntimeUiQuitRequested(rt));
+  FZeroRuntimeUiDestroy(rt);
+
+  /* Exercise the patched renderer with real ImGui mouse events. Coordinates
+   * are inside the Quit row at the fixed 800x700 sidebar layout above. */
+  rt = FZeroRuntimeUiCreate(settings, window, renderer, texture, NULL); CHECK(rt);
+  FZeroRuntimeUiOpen(rt);
+  CHECK(SDL_SetWindowSize(window, 800, 700)); SettleWindow(window, renderer);
+  for (int frame = 0; frame < 2; ++frame) {
+    SDL_RenderClear(renderer);
+    fzero_imgui_render_overlay(ig, rt, renderer, 0, 0);
+    CHECK(SDL_RenderPresent(renderer));
+  }
+  SDL_Event mouse = {0}; mouse.type = SDL_EVENT_MOUSE_MOTION;
+  mouse.motion.windowID = SDL_GetWindowID(window);
+  /* The first valid position establishes ImGui's pointer history. */
+  for (int y = 324; y <= 325; ++y) {
+    mouse.motion.x = 100; mouse.motion.y = y;
+    fzero_imgui_process_event(ig, &mouse);
+    SDL_RenderClear(renderer);
+    fzero_imgui_render_overlay(ig, rt, renderer, 0, 0);
+    CHECK(SDL_RenderPresent(renderer));
+  }
+  CHECK(FZeroRuntimeUiQuitIsSelected(rt) && !FZeroRuntimeUiQuitRequested(rt));
+  Key(rt, SDL_SCANCODE_UP, 1); /* A stationary pointer must not steal focus. */
+  SDL_RenderClear(renderer);
+  fzero_imgui_render_overlay(ig, rt, renderer, 0, 0);
+  CHECK(!FZeroRuntimeUiQuitIsSelected(rt) && !FZeroRuntimeUiQuitRequested(rt));
+  CHECK(SDL_RenderPresent(renderer));
+  Key(rt, SDL_SCANCODE_DOWN, 1); CHECK(FZeroRuntimeUiQuitIsSelected(rt));
+  for (int down = 1; down >= 0; --down) {
+    mouse.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+    mouse.button.windowID = SDL_GetWindowID(window);
+    mouse.button.button = SDL_BUTTON_LEFT; mouse.button.down = down;
+    mouse.button.x = 100; mouse.button.y = 325;
+    fzero_imgui_process_event(ig, &mouse);
+    SDL_RenderClear(renderer);
+    fzero_imgui_render_overlay(ig, rt, renderer, 0, 0);
+    CHECK(SDL_RenderPresent(renderer));
+  }
+  CHECK(FZeroRuntimeUiQuitRequested(rt));
+  FZeroRuntimeUiDestroy(rt);
+}
+
 static void TestMenu(void) {
   Write("config.ini", "[KeyMap]\nDisplayPerf = F\n");
   FZeroSettings s; FZeroSettingsInitDefault(&s);
@@ -299,7 +440,7 @@ static void TestMenu(void) {
   FZeroRuntimeUiOpen(rt);
   for (int i = 0; i < 3; ++i) Button(rt, SDL_GAMEPAD_BUTTON_DPAD_DOWN, 1);
   Button(rt, SDL_GAMEPAD_BUTTON_SOUTH, 1);
-  for (int i = 0; i < 2; ++i) Button(rt, SDL_GAMEPAD_BUTTON_DPAD_DOWN, 1);
+  Button(rt, SDL_GAMEPAD_BUTTON_DPAD_DOWN, 1);
   Button(rt, SDL_GAMEPAD_BUTTON_SOUTH, 1);
   CHECK(FZeroRuntimeUiTakeScreenshotRequest(rt));
   CHECK(!FZeroRuntimeUiTakeScreenshotRequest(rt));
@@ -321,7 +462,10 @@ static void TestMenu(void) {
   CHECK(notice_changed > 100);
   SDL_DestroySurface(notice); SDL_DestroySurface(notice_raw);
   CHECK(SDL_RenderPresent(renderer));
-  fzero_imgui_destroy(ig); FZeroRuntimeUiDestroy(rt);
+  FZeroRuntimeUiDestroy(rt);
+  TestGuideMenu(&s, window, renderer, texture);
+  TestSidebarQuit(&s, window, renderer, texture, ig);
+  fzero_imgui_destroy(ig);
   SDL_DestroyTexture(texture); FZeroPresentationDestroy(presentation); SDL_DestroyWindow(window);
 }
 static void TestFps(void) {

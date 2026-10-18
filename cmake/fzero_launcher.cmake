@@ -32,3 +32,33 @@ function(fzero_target_launcher target)
     target_sources(${target} PRIVATE "${directory}/launcher_imgui.cpp"
         src/launcher_settings.c src/launcher_saves.c)
 endfunction()
+
+# Add the host's Quit action to the existing runtime sidebar. Use the same
+# checked, disposable-copy policy as the launcher adapter above.
+function(fzero_target_runtime_ui target)
+    find_package(Git REQUIRED)
+    set(upstream "${RECOMP_UI_ROOT}/src/common/backends/imgui/runtime_ui_imgui.cpp")
+    set(adapter "${CMAKE_CURRENT_SOURCE_DIR}/patches/recomp-ui/0002-fzero-runtime-quit.patch")
+    set(directory "${CMAKE_CURRENT_BINARY_DIR}/fzero-runtime-ui")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${upstream}" "${adapter}")
+    file(MAKE_DIRECTORY "${directory}")
+    file(READ "${upstream}" backend)
+    string(REPLACE "\r\n" "\n" backend "${backend}")
+    file(WRITE "${directory}/runtime_ui_imgui.cpp" "${backend}")
+    execute_process(COMMAND "${CMAKE_COMMAND}" -E env
+        "GIT_CEILING_DIRECTORIES=${CMAKE_CURRENT_BINARY_DIR}"
+        "${GIT_EXECUTABLE}" apply --no-index --whitespace=error "${adapter}"
+        WORKING_DIRECTORY "${directory}" RESULT_VARIABLE result ERROR_VARIABLE error)
+    if(NOT result EQUAL 0)
+        message(FATAL_ERROR "F-Zero runtime adapter does not match recomp-ui: ${error}")
+    endif()
+    file(READ "${directory}/runtime_ui_imgui.cpp" patched_backend)
+    string(FIND "${patched_backend}" "FZeroRuntimeUiRequestQuit(" quit_marker)
+    if(quit_marker EQUAL -1)
+        message(FATAL_ERROR "F-Zero runtime adapter was skipped; build-local UI is unpatched")
+    endif()
+    get_target_property(sources ${target} SOURCES)
+    list(REMOVE_ITEM sources "${upstream}")
+    set_property(TARGET ${target} PROPERTY SOURCES "${sources}")
+    target_sources(${target} PRIVATE "${directory}/runtime_ui_imgui.cpp")
+endfunction()
