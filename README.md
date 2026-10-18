@@ -425,6 +425,26 @@ After generation, maintainers can build the Mac release with
 SDL source, builds it for macOS 13, runs CTest, and writes the app, ZIP, and
 checksum under `build-release/`.
 
+The Mac packager includes `assets/icons/AppIcon.icns` and declares it in the
+app's `Info.plist` before signing. `assets/icons/AppIcon.png` is the approved
+1024 × 1024 master. To regenerate the ICNS on macOS:
+
+```sh
+mkdir -p build/AppIcon.iconset
+for size in 16 32 128 256 512; do
+  sips -z "$size" "$size" assets/icons/AppIcon.png \
+    --out "build/AppIcon.iconset/icon_${size}x${size}.png" >/dev/null
+  double_size=$((size * 2))
+  sips -z "$double_size" "$double_size" assets/icons/AppIcon.png \
+    --out "build/AppIcon.iconset/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns build/AppIcon.iconset -o assets/icons/AppIcon.icns
+```
+
+Only the PNG master and ICNS are kept in source. Intermediate sizes stay in
+the ignored build directory. Use the packager's `--output` option to build a
+local verification package without replacing an existing release package.
+
 Report bugs with the platform, build revision, settings, and reproduction steps.
 Do not attach ROMs or generated game code.
 

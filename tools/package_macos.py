@@ -125,6 +125,7 @@ def main() -> None:
     library = contents / "Frameworks/libSDL3.0.dylib"
     copy(build / "fzero_recomp", executable)
     copy(prefix / "lib/libSDL3.0.dylib", library)
+    copy(ROOT / "assets/icons/AppIcon.icns", resources / "AppIcon.icns")
     for asset in ASSETS:
         copy(build / "assets" / asset, resources / "assets" / asset)
     notices = resources / "Licenses"
@@ -171,6 +172,7 @@ def main() -> None:
         plistlib.dump({
             "CFBundleExecutable": "fzero_recomp", "CFBundleName": "F-Zero Recomp",
             "CFBundleDisplayName": "F-Zero Recomp", "CFBundleIdentifier": "com.craigshaw.fzerorecomp",
+            "CFBundleIconFile": "AppIcon.icns",
             "CFBundlePackageType": "APPL", "CFBundleInfoDictionaryVersion": "6.0",
             "CFBundleShortVersionString": args.version, "CFBundleVersion": args.version,
             "LSMinimumSystemVersion": MIN_MACOS, "NSHighResolutionCapable": True,

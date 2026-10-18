@@ -1,5 +1,10 @@
 # Third-party notices
 
+The macOS app icon in `assets/icons/AppIcon.png` and `AppIcon.icns` is derived
+from an edited F-Zero title-screen screenshot. The game artwork and F-Zero
+logo belong to their respective rights holders and are not covered by the
+project licence.
+
 The SDL3 renderer backend in `src/imgui_impl_sdlrenderer3.cpp` and its header
 reuse the Super Tennis port of Dear ImGui v1.91.9b's SDL2 renderer backend.
 The MIT licence below covers that backend. Other dependencies retain their
