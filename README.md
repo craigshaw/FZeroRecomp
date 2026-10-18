@@ -95,16 +95,15 @@ The launcher also accepts the same payload with a 512-byte copier header.
 ## Download and install
 
 The [0.6.0 release](https://github.com/craigshaw/FZeroRecomp/releases/tag/v0.6.0)
-is available for Linux and Windows. The macOS 0.6.0 build is pending; its latest
-download remains at 0.5.0. Downloads bundle SDL; no compiler or code generation
-is needed to play. You supply your own F-Zero (USA) ROM. The custom save-folder
-option requires 0.6.0.
+is available for Linux, Windows, and macOS Apple Silicon. Downloads bundle SDL;
+no compiler or code generation is needed to play. You supply your own
+F-Zero (USA) ROM. The custom save-folder option requires 0.6.0.
 
 | Platform | Download | Requirements |
 | --- | --- | --- |
 | Linux | [Linux x86_64 tar.gz (0.6.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.6.0/FZeroRecomp-v0.6.0-Linux-x64.tar.gz) | glibc 2.38+, `GLIBCXX_3.4.29`, and system graphics/audio libraries; tested on Ubuntu 24.04 with Intel graphics |
 | Windows | [Windows x64 ZIP (0.6.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.6.0/FZeroRecomp-v0.6.0-Windows-x64.zip) | Windows 10/11 x64; Direct3D 12 with Shader Model 6.0 for visual filters |
-| macOS | [Apple Silicon ZIP (0.5.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.5.0/FZeroRecomp-v0.5.0-macOS-arm64.zip) | Apple Silicon (M1 or newer), macOS 13 or newer; Intel Macs are not supported |
+| macOS | [Apple Silicon ZIP (0.6.0)](https://github.com/craigshaw/FZeroRecomp/releases/download/v0.6.0/FZeroRecomp-v0.6.0-macOS-arm64.zip) | Apple Silicon (M1 or newer), macOS 13 or newer; Intel Macs are not supported |
 
 ### Linux
 
@@ -150,7 +149,7 @@ backs up an existing save as `saves/save.srm.bak` before replacing it.
 
 ### macOS
 
-1. Download `FZeroRecomp-v0.5.0-macOS-arm64.zip` from the release's **Assets**.
+1. Download `FZeroRecomp-v0.6.0-macOS-arm64.zip` from the release's **Assets**.
 2. Extract the ZIP and drag **F-Zero Recomp.app** into **Applications**.
 3. Open the app, select your F-Zero (USA) ROM, and press **Play**.
 
